@@ -1,0 +1,96 @@
+[package]
+name = "rust-ftp-tui"
+version = "0.1.0"
+edition = "2021"
+authors = ["axpdev"]
+description = "A modern, asynchronous FTP client with TUI interface for Linux"
+license = "MIT"
+repository = "https://github.com/axpnet/rust-ftp-tui"
+homepage = "https://github.com/axpnet/rust-ftp-tui"
+documentation = "https://github.com/axpnet/rust-ftp-tui#readme"
+readme = "README.md"
+keywords = ["ftp", "tui", "terminal", "async", "client"]
+categories = ["command-line-utilities", "network-programming"]
+rust-version = "1.75"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "rust-ftp-tui"
+path = "src/main.rs"
+
+[[example]]
+name = "test_ftp"
+path = "examples/test_ftp.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# TUI components
+ratatui = "0.29"
+crossterm = "0.28"
+
+# FTP client - Using tokio async feature
+suppaftp = { version = "7", features = ["tokio"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# CLI parsing
+clap = { version = "4", features = ["derive"] }
+
+# Serialization (for config)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Utility crates
+unicode-width = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+
+# Date and time utilities
+time = { version = "0.3", features = ["local-offset", "formatting", "parsing"] }
+
+[dev-dependencies]
+# Additional test dependencies
+tempfile = "3"
+pretty_assertions = "1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+strip = true
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+# Metadata for cargo-deb
+[package.metadata.deb]
+maintainer = "axpdev <axpnet@gmail.com>"
+copyright = "2025, axpdev"
+license-file = ["LICENSE", "0"]
+extended-description = """
+A modern, asynchronous Terminal User Interface (TUI) FTP client 
+built in Rust. Features include:
+- Dual-panel file browser (remote/local)
+- Asynchronous file transfers
+- Directory navigation
+- Configuration file support
+- Customizable themes
+"""
+section = "net"
+priority = "optional"
+assets = [
+    ["target/release/rust-ftp-tui", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/rust-ftp-tui/", "644"],
+    ["LICENSE", "usr/share/doc/rust-ftp-tui/", "644"],
+]
