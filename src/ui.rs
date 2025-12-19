@@ -123,24 +123,45 @@ fn draw_local_files_panel(f: &mut Frame, app: &mut App, area: Rect) {
         Style::default().fg(Color::Gray)
     };
 
+    // Show current path in title
+    let title = format!(" 💻 {} ", app.current_local_path());
     let block = Block::default()
-        .title(" 💻 Local Files ")
+        .title(title)
         .borders(Borders::ALL)
         .border_style(border_style);
 
     let inner_area = block.inner(area);
     f.render_widget(block, area);
 
-    // Draw placeholder file list
-    let items = vec![
-        ListItem::new("📁 ..").style(Style::default().fg(Color::Blue)),
-        ListItem::new("📁 Documents").style(Style::default().fg(Color::Blue)),
-        ListItem::new("📁 Downloads").style(Style::default().fg(Color::Blue)),
-        ListItem::new("📄 example.txt (1.2 KB)").style(Style::default()),
-        ListItem::new("📄 readme.md (856 B)").style(Style::default()),
-    ];
+    // Build file list items from actual local files
+    let items: Vec<ListItem> = app.local_files.iter().enumerate().map(|(i, file)| {
+        let style = if file.is_dir {
+            Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::White)
+        };
 
-    let list = List::new(items);
+        let prefix = if file.is_dir { "📁" } else { "📄" };
+        let size = file.size.map(|s| format_file_size(s)).unwrap_or_else(|| "".to_string());
+        
+        let content = if size.is_empty() {
+            format!("{} {}", prefix, file.name)
+        } else {
+            format!("{} {} ({})", prefix, file.name, size)
+        };
+        
+        let item_style = if Some(i) == app.selected_local_file {
+            style.bg(Color::DarkGray)
+        } else {
+            style
+        };
+        
+        ListItem::new(content).style(item_style)
+    }).collect();
+
+    let list = List::new(items)
+        .highlight_style(Style::default().add_modifier(Modifier::BOLD).bg(Color::DarkGray));
+
     f.render_stateful_widget(list, inner_area, &mut app.local_list_state);
 }
 

@@ -383,18 +383,27 @@ impl FtpManager {
             return Err(FtpManagerError::InvalidPath("Empty listing".to_string()).into());
         }
 
+        debug!("Parsing FTP listing: {}", listing);
+
         // Try to parse Unix-style listing first
         if let Some(file) = self.parse_unix_listing(listing) {
+            debug!("Parsed as Unix: {} (is_dir: {})", file.name, file.is_dir);
             return Ok(file);
         }
 
         // Try to parse DOS-style listing
         if let Some(file) = self.parse_dos_listing(listing) {
+            debug!("Parsed as DOS: {} (is_dir: {})", file.name, file.is_dir);
             return Ok(file);
         }
 
         // Fallback: treat as simple filename
+        // Check if it might be a directory (no extension, common dir indicators)
         let name = listing.trim().to_string();
+        let is_likely_dir = !name.contains('.') || name == "." || name == "..";
+        
+        debug!("Fallback parsing: {} (guessed is_dir: {})", name, is_likely_dir);
+        
         let path = if self.current_path.ends_with('/') {
             format!("{}{}", self.current_path, name)
         } else {
@@ -405,7 +414,7 @@ impl FtpManager {
             name,
             path,
             size: None,
-            is_dir: false,
+            is_dir: is_likely_dir,
             modified: None,
             permissions: None,
         })

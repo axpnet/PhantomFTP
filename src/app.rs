@@ -4,11 +4,21 @@
 
 use crossterm::event::{KeyEvent, KeyCode, KeyModifiers};
 use ratatui::widgets::ListState;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tracing::{info, error};
 
 use crate::ftp::{FtpManager, RemoteFile};
+
+/// Local file representation
+#[derive(Debug, Clone)]
+pub struct LocalFile {
+    pub name: String,
+    pub path: PathBuf,
+    pub size: Option<u64>,
+    pub is_dir: bool,
+}
 
 #[derive(Debug, Clone)]
 pub enum AppEvent {
@@ -87,7 +97,7 @@ impl Default for ConnectionDialog {
 pub struct App {
     ftp_manager: Arc<Mutex<FtpManager>>,
     pub remote_files: Vec<RemoteFile>,
-    pub local_files: Vec<String>,
+    pub local_files: Vec<LocalFile>,
     pub remote_list_state: ListState,
     pub local_list_state: ListState,
     pub selected_remote_file: Option<usize>,
@@ -100,6 +110,7 @@ pub struct App {
     pub error_message: Option<String>,
     pub is_connected: bool,
     current_remote_path: String,
+    pub current_local_path_buf: PathBuf,
     event_sender: Option<mpsc::UnboundedSender<AppEvent>>,
 }
 
@@ -111,14 +122,19 @@ impl App {
         if let Some(u) = username { connection_dialog.username = u; }
         if let Some(p) = password { connection_dialog.password = p; }
 
-        Self {
+        // Get home directory as starting point for local files
+        let home_dir = std::env::var("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("/"));
+
+        let mut app = Self {
             ftp_manager: Arc::new(Mutex::new(FtpManager::new())),
             remote_files: Vec::new(),
             local_files: Vec::new(),
             remote_list_state: ListState::default(),
             local_list_state: ListState::default(),
             selected_remote_file: None,
-            selected_local_file: None,
+            selected_local_file: Some(0),
             remote_focused: true,
             current_tab: 0,
             show_connection_dialog: false,
@@ -127,8 +143,64 @@ impl App {
             error_message: None,
             is_connected: false,
             current_remote_path: "/".to_string(),
+            current_local_path_buf: home_dir,
             event_sender: None,
+        };
+        
+        // Load local files on startup
+        app.refresh_local_files();
+        app
+    }
+    
+    /// Refresh local file listing
+    pub fn refresh_local_files(&mut self) {
+        let mut files = Vec::new();
+        
+        // Add parent directory entry if not at root
+        if self.current_local_path_buf.parent().is_some() {
+            files.push(LocalFile {
+                name: "..".to_string(),
+                path: self.current_local_path_buf.parent().unwrap().to_path_buf(),
+                size: None,
+                is_dir: true,
+            });
         }
+        
+        // Read directory contents
+        if let Ok(entries) = std::fs::read_dir(&self.current_local_path_buf) {
+            for entry in entries.flatten() {
+                if let Ok(metadata) = entry.metadata() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    
+                    // Skip hidden files (starting with .)
+                    if name.starts_with('.') {
+                        continue;
+                    }
+                    
+                    files.push(LocalFile {
+                        name,
+                        path: entry.path(),
+                        size: if metadata.is_file() { Some(metadata.len()) } else { None },
+                        is_dir: metadata.is_dir(),
+                    });
+                }
+            }
+        }
+        
+        // Sort: directories first, then files, both alphabetically
+        files.sort_by(|a, b| {
+            if a.name == ".." { return std::cmp::Ordering::Less; }
+            if b.name == ".." { return std::cmp::Ordering::Greater; }
+            match (a.is_dir, b.is_dir) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            }
+        });
+        
+        self.local_files = files;
+        self.selected_local_file = if self.local_files.is_empty() { None } else { Some(0) };
+        self.local_list_state.select(self.selected_local_file);
     }
 
     pub fn handle_event(&mut self, event: AppEvent) {
@@ -184,6 +256,11 @@ impl App {
             }
             KeyCode::Tab => {
                 self.remote_focused = !self.remote_focused;
+                self.status_message = if self.remote_focused {
+                    "Focus: Remote Files".to_string()
+                } else {
+                    format!("Focus: Local Files ({})", self.current_local_path_buf.display())
+                };
             }
             KeyCode::Up => {
                 if self.remote_focused {
@@ -202,11 +279,22 @@ impl App {
             KeyCode::Enter => {
                 if self.remote_focused {
                     self.handle_remote_enter();
+                } else {
+                    self.handle_local_enter();
                 }
             }
             KeyCode::Backspace => {
                 if self.remote_focused && self.is_connected {
                     self.handle_remote_backspace();
+                } else if !self.remote_focused {
+                    self.handle_local_backspace();
+                }
+            }
+            KeyCode::Char('l') | KeyCode::Char('L') => {
+                // Debug: manually refresh local files
+                if !self.remote_focused {
+                    self.refresh_local_files();
+                    self.status_message = format!("Refreshed local: {} files", self.local_files.len());
                 }
             }
             _ => {}
@@ -480,11 +568,47 @@ impl App {
     }
 
     fn move_local_selection_up(&mut self) {
-        self.local_list_state.select(Some(0));
+        if self.local_files.is_empty() {
+            return;
+        }
+        let i = self.selected_local_file.map(|s| s.saturating_sub(1)).unwrap_or(0);
+        self.selected_local_file = Some(i.min(self.local_files.len() - 1));
+        self.local_list_state.select(self.selected_local_file);
     }
 
     fn move_local_selection_down(&mut self) {
-        self.local_list_state.select(Some(0));
+        if self.local_files.is_empty() {
+            return;
+        }
+        let i = self.selected_local_file.map(|s| s + 1).unwrap_or(0);
+        self.selected_local_file = Some(i.min(self.local_files.len() - 1));
+        self.local_list_state.select(self.selected_local_file);
+    }
+    
+    fn handle_local_enter(&mut self) {
+        if let Some(index) = self.selected_local_file {
+            if let Some(file) = self.local_files.get(index).cloned() {
+                if file.is_dir {
+                    self.current_local_path_buf = file.path;
+                    self.refresh_local_files();
+                    self.status_message = format!("Entered: {}", self.current_local_path_buf.display());
+                } else {
+                    self.status_message = format!("Selected file: {} (not a dir)", file.name);
+                }
+            } else {
+                self.status_message = format!("No file at index {}", index);
+            }
+        } else {
+            self.status_message = "No file selected".to_string();
+        }
+    }
+    
+    fn handle_local_backspace(&mut self) {
+        if let Some(parent) = self.current_local_path_buf.parent() {
+            self.current_local_path_buf = parent.to_path_buf();
+            self.refresh_local_files();
+            self.status_message = format!("Local: {}", self.current_local_path_buf.display());
+        }
     }
 
     // Public getter methods
@@ -496,8 +620,8 @@ impl App {
         &self.current_remote_path
     }
 
-    pub fn current_local_path(&self) -> &str {
-        "/home/user"
+    pub fn current_local_path(&self) -> String {
+        self.current_local_path_buf.to_string_lossy().to_string()
     }
 
     pub fn is_connected(&self) -> bool {
