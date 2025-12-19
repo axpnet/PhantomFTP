@@ -1,15 +1,15 @@
 [package]
-name = "rust-ftp-tui"
-version = "0.1.0"
+name = "phantomftp"
+version = "1.0.0"
 edition = "2021"
 authors = ["axpdev"]
-description = "A modern, asynchronous FTP client with TUI interface for Linux"
+description = "PhantomFTP - A modern, cyberpunk-inspired asynchronous TUI FTP client for Linux"
 license = "MIT"
-repository = "https://github.com/axpnet/rust-ftp-tui"
-homepage = "https://github.com/axpnet/rust-ftp-tui"
-documentation = "https://github.com/axpnet/rust-ftp-tui#readme"
+repository = "https://github.com/axpnet/PhantomFTP"
+homepage = "https://github.com/axpnet/PhantomFTP"
+documentation = "https://github.com/axpnet/PhantomFTP#readme"
 readme = "README.md"
-keywords = ["ftp", "tui", "terminal", "async", "client"]
+keywords = ["ftp", "sftp", "ftps", "tui", "terminal", "async", "client", "cyberpunk"]
 categories = ["command-line-utilities", "network-programming"]
 rust-version = "1.75"
 
@@ -17,7 +17,7 @@ rust-version = "1.75"
 path = "src/lib.rs"
 
 [[bin]]
-name = "rust-ftp-tui"
+name = "phantomftp"
 path = "src/main.rs"
 
 [[example]]
@@ -32,8 +32,12 @@ tokio = { version = "1", features = ["full"] }
 ratatui = "0.29"
 crossterm = "0.28"
 
-# FTP client - Using tokio async feature
-suppaftp = { version = "7", features = ["tokio"] }
+# FTP client - Using tokio async feature with TLS support
+suppaftp = { version = "7", features = ["tokio", "native-tls"] }
+
+# SFTP client
+russh = "0.46"
+russh-sftp = "0.5"
 
 # Error handling
 anyhow = "1.0"
@@ -75,14 +79,15 @@ debug = true
 
 # Metadata for cargo-deb
 [package.metadata.deb]
-maintainer = "axpdev <axpnet@gmail.com>"
+maintainer = "axpdev <aleimob@gmail.com>"
 copyright = "2025, axpdev"
 license-file = ["LICENSE", "0"]
 extended-description = """
-A modern, asynchronous Terminal User Interface (TUI) FTP client 
+PhantomFTP - A cyberpunk-inspired Terminal User Interface (TUI) FTP client 
 built in Rust. Features include:
+- Multi-protocol support (FTP, FTPS, SFTP)
 - Dual-panel file browser (remote/local)
-- Asynchronous file transfers
+- Asynchronous file transfers with progress tracking
 - Directory navigation
 - Configuration file support
 - Customizable themes
@@ -90,7 +95,7 @@ built in Rust. Features include:
 section = "net"
 priority = "optional"
 assets = [
-    ["target/release/rust-ftp-tui", "usr/bin/", "755"],
-    ["README.md", "usr/share/doc/rust-ftp-tui/", "644"],
-    ["LICENSE", "usr/share/doc/rust-ftp-tui/", "644"],
+    ["target/release/phantomftp", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/phantomftp/", "644"],
+    ["LICENSE", "usr/share/doc/phantomftp/", "644"],
 ]

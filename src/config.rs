@@ -1,13 +1,15 @@
-//! Configuration Management
-//! 
-//! This module handles loading, saving, and managing application configuration.
+//! Configuration management for the FTP client
+//!
+//! This module handles loading and saving server configurations from/to JSON files.
+//! It also manages the application's theme and other settings.
 
-use anyhow::{Context, Result};
-use ratatui::style::Color;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use tracing::info;
+use std::fs;
+use std::path::PathBuf;
+use tracing::{debug, error, info};
+
+// Import the ProtocolType from the ftp module
+use crate::ftp::ProtocolType;
 
 /// Main application configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,7 +27,7 @@ pub struct Config {
     pub settings: Option<AppSettings>,
 }
 
-/// FTP server configuration
+/// FTP/SFTP server configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     /// Display name for this server
@@ -34,23 +36,35 @@ pub struct ServerConfig {
     /// Server hostname or IP address
     pub host: String,
     
-    /// FTP port (default: 21)
-    pub port: Option<u16>,
-    
     /// Username for authentication
     pub username: String,
     
     /// Password (optional - can be prompted at runtime)
     pub password: Option<String>,
     
-    /// Use TLS/SSL encryption
-    pub use_tls: Option<bool>,
+    /// Port number (default: 21 for FTP/FTPS, 22 for SFTP)
+    #[serde(default = "default_port")]
+    pub port: u16,
+    
+    /// Protocol type (FTP, FTPS, or SFTP)
+    #[serde(default)]
+    pub protocol: ProtocolType,
+    
+    /// Use secure connection (FTPS) - kept for backward compatibility
+    #[serde(default)]
+    pub use_tls: bool,
+    
+    /// Hostname for TLS verification (optional)
+    #[serde(default)]
+    pub tls_hostname: Option<String>,
     
     /// Passive mode (default: true)
-    pub passive_mode: Option<bool>,
+    #[serde(default = "default_passive_mode")]
+    pub passive_mode: bool,
     
-    /// Custom timeout in seconds
-    pub timeout: Option<u64>,
+    /// Connection timeout in seconds (default: 30)
+    #[serde(default = "default_timeout")]
+    pub timeout: u64,
 }
 
 /// UI theme configuration
@@ -125,7 +139,7 @@ impl Config {
 
     /// Load configuration from file
     pub fn load_from_file(path: &str) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
+        let content = fs::read_to_string(path)
             .context("Failed to read config file")?;
         
         let config: Config = serde_json::from_str(&content)
@@ -137,15 +151,15 @@ impl Config {
 
     /// Save configuration to file
     pub fn save_to_file(&self, path: &str) -> Result<()> {
-        if let Some(parent) = Path::new(path).parent() {
-            std::fs::create_dir_all(parent)
+        if let Some(parent) = PathBuf::from(path).parent() {
+            fs::create_dir_all(parent)
                 .context("Failed to create config directory")?;
         }
 
         let content = serde_json::to_string_pretty(self)
             .context("Failed to serialize config")?;
         
-        std::fs::write(path, content)
+        fs::write(path, content)
             .context("Failed to write config file")?;
         
         info!("Configuration saved to: {}", path);
@@ -190,42 +204,99 @@ impl Config {
     }
 }
 
+/// Default port value (21)
+fn default_port() -> u16 {
+    21
+}
+
+/// Default passive mode setting (true)
+fn default_passive_mode() -> bool {
+    true
+}
+
+/// Default timeout value (30 seconds)
+fn default_timeout() -> u64 {
+    30
+}
+
 impl ServerConfig {
     /// Create a new server configuration
     pub fn new(name: String, host: String, username: String) -> Self {
         Self {
             name,
             host,
-            port: Some(21),
             username,
             password: None,
-            use_tls: Some(false),
-            passive_mode: Some(true),
-            timeout: Some(30),
+            port: 21, // Default FTP port
+            protocol: ProtocolType::Ftp,
+            use_tls: false,
+            tls_hostname: None,
+            passive_mode: default_passive_mode(),
+            timeout: default_timeout(),
+        }
+    }
+
+    /// Create a new secure server configuration with FTPS
+    pub fn new_secure(name: String, host: String, username: String, tls_hostname: Option<String>) -> Self {
+        Self {
+            name,
+            host,
+            username,
+            password: None,
+            port: 21, // Default FTP port
+            protocol: ProtocolType::Ftps,
+            use_tls: true,
+            tls_hostname,
+            passive_mode: default_passive_mode(),
+            timeout: default_timeout(),
+        }
+    }
+    
+    /// Create a new SFTP server configuration
+    pub fn new_sftp(name: String, host: String, username: String) -> Self {
+        Self {
+            name,
+            host,
+            username,
+            password: None,
+            port: 22, // Default SFTP port
+            protocol: ProtocolType::Sftp,
+            use_tls: false,
+            tls_hostname: None,
+            passive_mode: default_passive_mode(), // Passive mode is not applicable to SFTP
+            timeout: default_timeout(),
         }
     }
 
     /// Get server address (host:port)
     pub fn address(&self) -> String {
-        let port = self.port.unwrap_or(21);
-        if port == 21 {
+        if self.host.contains(':') {
             self.host.clone()
         } else {
-            format!("{}:{}", self.host, port)
+            format!("{}:{}", self.host, self.port)
         }
     }
 
-    /// Check if password is set
+    /// Check if password is required
     pub fn has_password(&self) -> bool {
         self.password.is_some()
     }
 
-    /// Get display name
+    /// Get display name with security indicator
     pub fn display_name(&self) -> String {
         if self.name.is_empty() {
-            format!("{}@{}", self.username, self.host)
+            let base = format!("{}@{}", self.username, self.host);
+            if self.use_tls {
+                format!("{} (Secure)", base)
+            } else {
+                base
+            }
         } else {
-            self.name.clone()
+            if self.use_tls {
+                format!("{} (Secure)", self.name)
+            } else {
+                self.name.clone()
+            }
         }
     }
 }

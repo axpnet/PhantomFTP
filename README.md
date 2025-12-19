@@ -1,127 +1,108 @@
-# 🌐 Rust FTP TUI Client
+# PhantomFTP - Modern Asynchronous TUI FTP Client
 
-[![Build](https://github.com/axpnet/rust-ftp-tui/actions/workflows/build.yml/badge.svg)](https://github.com/axpnet/rust-ftp-tui/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-blue.svg)](https://github.com/axpnet/rust-ftp-tui/releases)
+<div align="center">
 
-A modern, asynchronous **Terminal User Interface (TUI)** FTP client built in Rust for Linux/Ubuntu.
+![Rust](https://img.shields.io/badge/Rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)
+![Terminal](https://img.shields.io/badge/Terminal-%23000000.svg?style=for-the-badge&logo=gnu-bash&logoColor=white)
+![License](https://img.shields.io/github/license/axpnet/rust-ftp-tui?style=for-the-badge)
 
-> **🤖 AI-Assisted Development Project**
-> - **Lead Developer & Supervisor:** axpdev
-> - **Architect & Tech Lead:** Gemini 3 Pro (AI)
-> - **Initial Execution:** KIMI K2 (AI)  
-> - **Refinement & Finalization:** Claude Opus 4.5 via Antigravity (AI)
+**PhantomFTP** is a modern, asynchronous Terminal User Interface (TUI) FTP client built in Rust.  
+It supports FTP, FTPS (FTP over TLS), and SFTP (SSH File Transfer Protocol) protocols.
 
-![Demo Screenshot](docs/screenshot.png)
+![PhantomFTP Demo](https://raw.githubusercontent.com/axpnet/rust-ftp-tui/main/assets/demo.gif)
 
-## ✨ Features
+*A futuristic, cyberpunk-inspired FTP client that flies like a phantom.*
 
-- 🚀 **Asynchronous Operations** - Built on Tokio for non-blocking network operations
-- 🖥️ **Beautiful TUI** - Clean terminal interface using Ratatui
-- 📁 **Dual Panel Layout** - Remote and local file browsing side by side
-- 🔐 **FTP Authentication** - Username/password login support
-- 📥 **File Downloads** - Download files with visual feedback
-- 📤 **File Uploads** - Upload local files to remote server
-- 📂 **Directory Navigation** - Browse directories, go back to parent
-- ⚙️ **Configuration** - JSON-based configuration for saved servers
-- 🎨 **Themeable** - Customizable color themes
+</div>
 
-## 🛠️ Installation
+## 🌟 Features
 
-### From Source (All Platforms)
+- **Multi-Protocol Support**:
+  - ✅ FTP (Classic File Transfer Protocol)
+  - ✅ FTPS (FTP over TLS/SSL for secure connections)
+  - ✅ SFTP (SSH File Transfer Protocol)
+- **Dual-Panel Interface**: Local and remote file browsing side-by-side
+- **Asynchronous Operations**: Non-blocking file transfers and directory operations
+- **Real Progress Tracking**: Visual progress bars for downloads, spinner for uploads
+- **Secure Authentication**: Username/password authentication for all protocols
+- **Intuitive TUI**: Terminal-based interface with keyboard navigation
+- **Connection Management**: Save and reuse server connection settings
+- **Transfer Resilience**: Automatic retry mechanism for failed transfers
+- **Transfer Cancellation**: Cancel ongoing transfers with Ctrl+C
+- **File Preview**: Preview remote files with the 'p' key
+
+## 🚀 Installation
+
+### From Source
+
+Requirements:
+- Rust 1.75 or higher
+- Git
 
 ```bash
 # Clone the repository
 git clone https://github.com/axpnet/rust-ftp-tui.git
 cd rust-ftp-tui
 
-# Build release version
+# Build the project
 cargo build --release
 
 # Run the application
-# Linux/macOS:
 ./target/release/rust-ftp-tui
-# Windows:
-.\target\release\rust-ftp-tui.exe
 ```
 
-### From .deb Package (Ubuntu/Debian)
+### Debian Package (Linux)
+
+Download the `.deb` package from [Releases](https://github.com/axpnet/rust-ftp-tui/releases) and install:
 
 ```bash
-# Download the latest .deb from releases
-sudo dpkg -i rust-ftp-tui_0.1.0_amd64.deb
-
-# Run
-rust-ftp-tui
+sudo dpkg -i phantomftp_*.deb
 ```
 
-### Windows Executable
+## 🎮 Usage
 
-Download `rust-ftp-tui-windows-amd64.exe` from the [Releases](https://github.com/axpnet/rust-ftp-tui/releases) page and run it directly. No installation required!
+After launching PhantomFTP, use the following keybindings:
 
-### Prerequisites
+### Navigation
+- `Tab` - Switch between local and remote panels
+- `↑/↓ Arrow Keys` - Navigate files in the selected panel
+- `Enter` - Enter selected directory
+- `Backspace` - Go to parent directory
+- `Space` - Select/deselect files for batch operations
 
-- **Rust** 1.75+ (install via [rustup](https://rustup.rs/)) - only if building from source
-- **Supported Platforms**: Linux, Windows 10+, macOS
+### Transfers
+- `Enter` - Download (remote panel) or upload (local panel) selected file
+- `p` - Preview remote file content
+- `Ctrl+C` - Cancel ongoing transfer
 
-## 🚀 Usage
+### Connection
+- `c` - Open connection dialog
+- `h` - Show help dialog
+- `q`/`Esc` - Quit the application
 
-### Interactive Mode
+### Connection Dialog
+In the connection dialog:
+- `Tab` - Move between input fields
+- `↑/↓` - Cycle between protocol options (FTP/FTPS/SFTP)
+- `Enter` - Connect to the server
+- `Esc` - Cancel and close dialog
 
-```bash
-rust-ftp-tui
-```
+## 🛠 Technical Architecture
 
-Then press `c` to open the connection dialog and enter your FTP credentials.
+PhantomFTP is built with modern Rust technologies:
 
-### Command Line Arguments
+- **[suppaftp](https://github.com/veeso/suppaftp)** - For FTP/FTPS protocol support
+- **[russh](https://github.com/warp-tech/russh)** - For SSH/SFTP protocol support
+- **[ratatui](https://github.com/ratatui-org/ratatui)** - For terminal user interface
+- **[tokio](https://github.com/tokio-rs/tokio)** - For asynchronous runtime
+- **[serde](https://github.com/serde-rs/serde)** - For configuration serialization
 
-```bash
-rust-ftp-tui --server ftp.example.com:21 --username myuser --password mypass
-```
-
-### Available Options
-
-| Option       | Short | Description                                   |
-| ------------ | ----- | --------------------------------------------- |
-| `--server`   | `-s`  | FTP server address (e.g., ftp.example.com:21) |
-| `--username` | `-u`  | Username for authentication                   |
-| `--password` | `-p`  | Password for authentication                   |
-| `--help`     | `-h`  | Show help message                             |
-| `--version`  | `-V`  | Show version                                  |
-
-## ⌨️ Key Bindings
-
-| Key         | Action                         |
-| ----------- | ------------------------------ |
-| `q` / `Q`   | Quit application               |
-| `c`         | Open connection dialog         |
-| `Tab`       | Switch focus between panels    |
-| `↑` / `↓`   | Navigate file list             |
-| `Enter`     | Open directory / Download file |
-| `Backspace` | Go to parent directory         |
-| `r`         | Refresh file listing           |
-| `u`         | Upload file                    |
-| `Esc`       | Close dialog / Cancel          |
-
-## 📁 Project Structure
-
-```
-rust-ftp-tui/
-├── src/
-│   ├── main.rs      # Entry point, terminal setup
-│   ├── app.rs       # Application state, event handling
-│   ├── ftp.rs       # FTP operations, connection management
-│   ├── ui.rs        # TUI rendering, widgets
-│   ├── config.rs    # Configuration management
-│   └── lib.rs       # Library exports
-├── examples/
-│   └── test_ftp.rs  # FTP functionality test
-├── Cargo.toml       # Dependencies
-├── LICENSE          # MIT License
-└── README.md        # This file
-```
+The application follows a modular architecture with clear separation of concerns:
+- `src/main.rs` - Entry point
+- `src/app.rs` - Application state and business logic
+- `src/ui.rs` - Terminal user interface rendering
+- `src/ftp.rs` - FTP/FTPS/SFTP protocol implementations
+- `src/config.rs` - Configuration management
 
 ## ⚙️ Configuration
 
@@ -166,8 +147,8 @@ Configuration file is stored at `~/.config/rust-ftp-tui/config.json`:
 - [x] Dual-panel TUI layout
 - [x] Connection dialog
 - [x] Configuration system
-- [ ] Progress bars for file transfers
-- [ ] Full local file system browser
+- [x] Progress bars for file transfers
+- [x] Full local file system browser
 - [ ] File search functionality
 - [ ] FTPS (FTP over TLS) support
 - [ ] SFTP support
@@ -175,30 +156,19 @@ Configuration file is stored at `~/.config/rust-ftp-tui/config.json`:
 - [ ] Transfer queue with multiple files
 - [ ] Drag and drop support (terminal permitting)
 
-## 🤝 Contributing
+## 🤝 Contributors
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Special thanks to these AI assistants who contributed to the development of PhantomFTP:
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+- **Qwen** - Primary development and architecture
+- **Claude Opus 4.5** - Corrective implementation and debugging
+- **Gemini 3 Pro** - Initial planning and design concepts
+- **Grok** - Quick suggestions and optimizations
 
-## 📝 License
+## 📜 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## 📞 Support
 
-- [Ratatui](https://ratatui.rs/) for the amazing TUI framework
-- [SuppaFTP](https://github.com/veeso/suppaftp) for the robust FTP library
-- The Rust community for excellent tooling and documentation
-
-## 📧 Contact
-
-Project Link: [https://github.com/axpnet/rust-ftp-tui](https://github.com/axpnet/rust-ftp-tui)
-
----
-
-Made with ❤️ and 🦀 Rust
+For issues, questions, or contributions, please [open an issue](https://github.com/axpnet/rust-ftp-tui/issues) on GitHub.

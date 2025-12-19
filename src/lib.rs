@@ -9,4 +9,4 @@ pub mod ui;
 
 pub use app::{App, AppEvent, ConnectionDialog, LocalFile};
 pub use config::{Config, ServerConfig, ThemeConfig, AppSettings};
-pub use ftp::{FtpManager, RemoteFile, FtpManagerError};
+pub use ftp::{FtpManager, RemoteFile, FtpManagerError, TransferProgress};

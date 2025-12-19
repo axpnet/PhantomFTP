@@ -7,9 +7,10 @@ use ratatui::widgets::ListState;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
+use tokio::sync::Mutex as _; // for blocking_lock
 use tracing::{info, error};
 
-use crate::ftp::{FtpManager, RemoteFile};
+use crate::ftp::{FtpManager, RemoteFile, TransferProgress, ProtocolType};
 
 /// Local file representation
 #[derive(Debug, Clone)]
@@ -26,16 +27,22 @@ pub enum AppEvent {
     FtpConnected,
     FtpDisconnected,
     FtpFilesListed(Vec<RemoteFile>),
+    FtpPathChanged(String),
     FtpError(String),
+    TransferProgress(TransferProgress),
+    TransferCompleted(String),
     StatusMessage(String),
+    FilePreview(String, String), // (filename, content)
 }
 
 #[derive(Debug, Clone)]
 pub struct ConnectionDialog {
-    pub server: String,
-    pub username: String,
-    pub password: String,
-    pub selected_field: usize,
+    server: String,
+    username: String,
+    password: String,
+    use_tls: bool,
+    protocol: ProtocolType,
+    selected_field: usize,
 }
 
 impl ConnectionDialog {
@@ -44,25 +51,46 @@ impl ConnectionDialog {
             server: String::new(),
             username: String::new(),
             password: String::new(),
+            use_tls: false,
+            protocol: ProtocolType::Ftp,
             selected_field: 0,
         }
     }
+    
+    pub fn server(&self) -> &str {
+        &self.server
+    }
 
-    pub fn server(&self) -> &str { &self.server }
-    pub fn username(&self) -> &str { &self.username }
-    pub fn password(&self) -> &str { &self.password }
-    pub fn selected_field(&self) -> usize { self.selected_field }
+    pub fn username(&self) -> &str {
+        &self.username
+    }
 
-    pub fn password_mask(&self) -> String {
-        "*".repeat(self.password.len())
+    pub fn password(&self) -> &str {
+        &self.password
+    }
+    
+    pub fn use_tls(&self) -> bool {
+        self.use_tls
+    }
+    
+    pub fn protocol(&self) -> &ProtocolType {
+        &self.protocol
+    }
+
+    pub fn selected_field(&self) -> usize {
+        self.selected_field
+    }
+
+    pub fn is_complete(&self) -> bool {
+        !self.server.is_empty() && !self.username.is_empty() && !self.password.is_empty()
     }
 
     pub fn next_field(&mut self) {
-        self.selected_field = (self.selected_field + 1) % 3;
+        self.selected_field = (self.selected_field + 1) % 5; // Now we have 5 fields
     }
 
     pub fn prev_field(&mut self) {
-        self.selected_field = (self.selected_field + 2) % 3;
+        self.selected_field = (self.selected_field + 4) % 5; // Handle underflow
     }
 
     pub fn input_char(&mut self, c: char) {
@@ -70,21 +98,37 @@ impl ConnectionDialog {
             0 => self.server.push(c),
             1 => self.username.push(c),
             2 => self.password.push(c),
-            _ => {},
+            3 => {}, // Protocol field is selected with arrows
+            4 => {}, // Placeholder for future fields
+            _ => {}
         }
     }
 
     pub fn backspace(&mut self) {
         match self.selected_field {
-            0 => { self.server.pop(); },
-            1 => { self.username.pop(); },
-            2 => { self.password.pop(); },
-            _ => {},
+            0 => { self.server.pop(); }
+            1 => { self.username.pop(); }
+            2 => { self.password.pop(); }
+            3 => {}, // Protocol field is selected with arrows
+            4 => {}, // Placeholder for future fields
+            _ => {}
         }
     }
-
-    pub fn is_complete(&self) -> bool {
-        !self.server.is_empty() && !self.username.is_empty() && !self.password.is_empty()
+    
+    pub fn toggle_tls(&mut self) {
+        self.use_tls = !self.use_tls;
+    }
+    
+    pub fn select_protocol(&mut self, protocol: ProtocolType) {
+        self.protocol = protocol;
+    }
+    
+    pub fn cycle_protocol(&mut self) {
+        self.protocol = match self.protocol {
+            ProtocolType::Ftp => ProtocolType::Ftps,
+            ProtocolType::Ftps => ProtocolType::Sftp,
+            ProtocolType::Sftp => ProtocolType::Ftp,
+        };
     }
 }
 
@@ -95,61 +139,62 @@ impl Default for ConnectionDialog {
 }
 
 pub struct App {
-    ftp_manager: Arc<Mutex<FtpManager>>,
-    pub remote_files: Vec<RemoteFile>,
+    pub is_connected: bool,
+    pub current_local_path_buf: PathBuf,
+    pub current_remote_path: String,
     pub local_files: Vec<LocalFile>,
-    pub remote_list_state: ListState,
+    pub remote_files: Vec<RemoteFile>,
     pub local_list_state: ListState,
-    pub selected_remote_file: Option<usize>,
+    pub remote_list_state: ListState,
     pub selected_local_file: Option<usize>,
+    pub selected_remote_file: Option<usize>,
+    pub local_focused: bool,
     pub remote_focused: bool,
-    pub current_tab: usize,
-    pub show_connection_dialog: bool,
-    pub connection_dialog: ConnectionDialog,
     pub status_message: String,
     pub error_message: Option<String>,
-    pub is_connected: bool,
-    current_remote_path: String,
-    pub current_local_path_buf: PathBuf,
-    event_sender: Option<mpsc::UnboundedSender<AppEvent>>,
+    pub show_connection_dialog: bool,
+    pub show_help: bool,
+    pub connection_dialog: ConnectionDialog,
+    pub event_sender: Option<mpsc::UnboundedSender<AppEvent>>,
+    pub ftp_manager: Arc<Mutex<FtpManager>>,
+    pub upload_in_progress: bool,
+    pub download_in_progress: bool,
+    pub transfer_cancelled: bool,
+    pub transfer_progress: Option<TransferProgress>,
+    pub show_preview: bool,
+    pub preview_content: Option<String>,
+    pub preview_file: Option<String>,
 }
 
 impl App {
-    pub fn new(server: Option<String>, username: Option<String>, password: Option<String>) -> Self {
-        let mut connection_dialog = ConnectionDialog::new();
-        
-        if let Some(s) = server { connection_dialog.server = s; }
-        if let Some(u) = username { connection_dialog.username = u; }
-        if let Some(p) = password { connection_dialog.password = p; }
-
-        // Get home directory as starting point for local files
-        let home_dir = std::env::var("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("/"));
-
-        let mut app = Self {
-            ftp_manager: Arc::new(Mutex::new(FtpManager::new())),
-            remote_files: Vec::new(),
-            local_files: Vec::new(),
-            remote_list_state: ListState::default(),
-            local_list_state: ListState::default(),
-            selected_remote_file: None,
-            selected_local_file: Some(0),
-            remote_focused: true,
-            current_tab: 0,
-            show_connection_dialog: false,
-            connection_dialog,
-            status_message: "Ready - Press 'c' to connect".to_string(),
-            error_message: None,
+    pub fn new() -> Self {
+        Self {
             is_connected: false,
+            current_local_path_buf: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             current_remote_path: "/".to_string(),
-            current_local_path_buf: home_dir,
+            local_files: Vec::new(),
+            remote_files: Vec::new(),
+            local_list_state: ListState::default(),
+            remote_list_state: ListState::default(),
+            selected_local_file: None,
+            selected_remote_file: None,
+            local_focused: true,
+            remote_focused: false,
+            status_message: "Welcome! Press 'c' to connect.".to_string(),
+            error_message: None,
+            show_connection_dialog: false,
+            show_help: false,
+            connection_dialog: ConnectionDialog::new(),
             event_sender: None,
-        };
-        
-        // Load local files on startup
-        app.refresh_local_files();
-        app
+            ftp_manager: Arc::new(Mutex::new(FtpManager::new())),
+            upload_in_progress: false,
+            download_in_progress: false,
+            transfer_cancelled: false,
+            transfer_progress: None,
+            show_preview: false,
+            preview_content: None,
+            preview_file: None,
+        }
     }
     
     /// Refresh local file listing
@@ -157,10 +202,10 @@ impl App {
         let mut files = Vec::new();
         
         // Add parent directory entry if not at root
-        if self.current_local_path_buf.parent().is_some() {
+        if let Some(parent) = self.current_local_path_buf.parent() {
             files.push(LocalFile {
                 name: "..".to_string(),
-                path: self.current_local_path_buf.parent().unwrap().to_path_buf(),
+                path: parent.to_path_buf(),
                 size: None,
                 is_dir: true,
             });
@@ -222,13 +267,36 @@ impl App {
                 self.remote_list_state.select(self.selected_remote_file);
                 self.status_message = format!("{} items", self.remote_files.len());
             }
+            AppEvent::FtpPathChanged(new_path) => {
+                self.current_remote_path = new_path;
+                self.status_message = format!("Entered: {}", self.current_remote_path);
+            }
             AppEvent::FtpError(error) => {
                 self.error_message = Some(error.clone());
                 self.status_message = error;
+                self.upload_in_progress = false;
+                self.download_in_progress = false;
+            }
+            AppEvent::TransferProgress(progress) => {
+                self.transfer_progress = Some(progress.clone());
+                self.status_message = format!("Transferring {}: {}%", progress.filename, progress.percentage);
+                self.download_in_progress = true;
+            }
+            AppEvent::TransferCompleted(filename) => {
+                self.status_message = format!("✓ Transfer completed: {}", filename);
+                self.upload_in_progress = false;
+                self.download_in_progress = false;
+                self.transfer_progress = None;
             }
             AppEvent::StatusMessage(msg) => {
                 self.status_message = msg;
             }
+            AppEvent::FilePreview(filename, content) => {
+                self.preview_file = Some(filename);
+                self.preview_content = Some(content);
+                self.show_preview = true;
+            }
+
         }
     }
 
@@ -242,6 +310,12 @@ impl App {
             KeyCode::Char('c') | KeyCode::Char('C') => {
                 if !key.modifiers.contains(KeyModifiers::CONTROL) && !self.is_connected {
                     self.show_connection_dialog = true;
+                } else if key.modifiers.contains(KeyModifiers::CONTROL) && (self.upload_in_progress || self.download_in_progress) {
+                    // Ctrl+C to cancel transfer
+                    self.transfer_cancelled = true;
+                    self.status_message = "Transfer cancelled".to_string();
+                    self.upload_in_progress = false;
+                    self.download_in_progress = false;
                 }
             }
             KeyCode::Char('r') | KeyCode::Char('R') => {
@@ -297,6 +371,31 @@ impl App {
                     self.status_message = format!("Refreshed local: {} files", self.local_files.len());
                 }
             }
+            KeyCode::Char('h') | KeyCode::Char('H') => {
+                // Toggle help dialog
+                self.show_help = !self.show_help;
+            }
+            KeyCode::Char('p') | KeyCode::Char('P') => {
+                if self.is_connected && self.remote_focused {
+                    if let Some(selected) = self.selected_remote_file {
+                        if let Some(file) = self.remote_files.get(selected) {
+                            if !file.is_dir {
+                                self.preview_file(&file.path);
+                            }
+                        }
+                    }
+                }
+            }
+            KeyCode::Esc => {
+                if self.show_preview {
+                    self.show_preview = false;
+                    self.preview_content = None;
+                    self.preview_file = None;
+                } else {
+                    self.show_connection_dialog = false;
+                    self.show_help = false;
+                }
+            }
             _ => {}
         }
     }
@@ -305,6 +404,7 @@ impl App {
         match key.code {
             KeyCode::Esc => {
                 self.show_connection_dialog = false;
+                self.show_help = false;
             }
             KeyCode::Enter => {
                 if self.connection_dialog.is_complete() {
@@ -322,10 +422,24 @@ impl App {
                 self.connection_dialog.backspace();
             }
             KeyCode::Up => {
-                self.connection_dialog.prev_field();
+                if self.connection_dialog.selected_field() == 3 {
+                    self.connection_dialog.cycle_protocol();
+                } else {
+                    self.connection_dialog.prev_field();
+                }
             }
             KeyCode::Down => {
-                self.connection_dialog.next_field();
+                if self.connection_dialog.selected_field() == 3 {
+                    self.connection_dialog.cycle_protocol();
+                } else {
+                    self.connection_dialog.next_field();
+                }
+            }
+            KeyCode::Char(' ') => {
+                // Spacebar to toggle TLS option
+                if self.connection_dialog.selected_field() == 3 { // Assuming TLS is field 3
+                    self.connection_dialog.toggle_tls();
+                }
             }
             KeyCode::Char(c) => {
                 self.connection_dialog.input_char(c);
@@ -349,55 +463,80 @@ impl App {
     }
 
     fn connect_to_server(&mut self) {
-        let server = self.connection_dialog.server.clone();
-        let username = self.connection_dialog.username.clone();
-        let password = self.connection_dialog.password.clone();
         let ftp_manager = Arc::clone(&self.ftp_manager);
         let sender = self.event_sender.clone();
-
+        let server = self.connection_dialog.server().to_string();
+        let username = self.connection_dialog.username().to_string();
+        let password = self.connection_dialog.password().to_string();
+        let protocol = self.connection_dialog.protocol().clone();
+        
         self.status_message = format!("Connecting to {}...", server);
 
         tokio::spawn(async move {
             let mut manager = ftp_manager.lock().await;
             
-            // Connect to server
-            match manager.connect(&server).await {
-                Ok(_) => {
-                    info!("Connected to {}", server);
-                    
-                    // Login
-                    match manager.login(&username, &password).await {
+            // Connect based on protocol type
+            let result = match protocol {
+                ProtocolType::Ftp => {
+                    match manager.connect(&server).await {
                         Ok(_) => {
-                            info!("Logged in as {}", username);
+                            // Login after connection
+                            match manager.login(&username, &password).await {
+                                Ok(_) => Ok(()),
+                                Err(e) => Err(e),
+                            }
+                        }
+                        Err(e) => Err(e),
+                    }
+                }
+                ProtocolType::Ftps => {
+                    // For TLS, we need the hostname for certificate verification
+                    let hostname = if server.contains(':') {
+                        server.split(':').next().unwrap_or(&server).to_string()
+                    } else {
+                        server.clone()
+                    };
+                    
+                    match manager.connect_secure(&server, &hostname).await {
+                        Ok(_) => {
+                            // Login after secure connection
+                            match manager.login(&username, &password).await {
+                                Ok(_) => Ok(()),
+                                Err(e) => Err(e),
+                            }
+                        }
+                        Err(e) => Err(e),
+                    }
+                }
+                ProtocolType::Sftp => {
+                    match manager.connect_sftp(&server, &username, &password).await {
+                        Ok(_) => Ok(()),
+                        Err(e) => Err(e),
+                    }
+                }
+            };
+            
+            match result {
+                Ok(_) => {
+                    info!("Connected to server ({:?}): {}", protocol, server);
+                    
+                    // Get initial file listing
+                    match manager.list_files().await {
+                        Ok(files) => {
                             if let Some(s) = &sender {
                                 let _ = s.send(AppEvent::FtpConnected);
-                            }
-                            
-                            // List files
-                            match manager.list_files().await {
-                                Ok(files) => {
-                                    if let Some(s) = &sender {
-                                        let _ = s.send(AppEvent::FtpFilesListed(files));
-                                    }
-                                }
-                                Err(e) => {
-                                    error!("Failed to list files: {:?}", e);
-                                    if let Some(s) = &sender {
-                                        let _ = s.send(AppEvent::FtpError(format!("Failed to list files: {:?}", e)));
-                                    }
-                                }
+                                let _ = s.send(AppEvent::FtpFilesListed(files));
                             }
                         }
                         Err(e) => {
-                            error!("Login failed: {:?}", e);
                             if let Some(s) = &sender {
-                                let _ = s.send(AppEvent::FtpError(format!("Login failed: {:?}", e)));
+                                let _ = s.send(AppEvent::FtpError(format!("Failed to list files: {:?}", e)));
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    error!("Connection failed: {:?}", e);
+                    error!("Failed to connect to server ({:?}): {:?} - {:?}", protocol, server, e);
                     if let Some(s) = &sender {
                         let _ = s.send(AppEvent::FtpError(format!("Connection failed: {:?}", e)));
                     }
@@ -414,10 +553,14 @@ impl App {
 
         tokio::spawn(async move {
             let mut manager = ftp_manager.lock().await;
+            // 获取当前路径
+            let current_path = manager.current_path();
             match manager.list_files().await {
                 Ok(files) => {
                     if let Some(s) = &sender {
                         let _ = s.send(AppEvent::FtpFilesListed(files));
+                        // 发送路径更新事件
+                        let _ = s.send(AppEvent::FtpPathChanged(current_path));
                     }
                 }
                 Err(e) => {
@@ -432,11 +575,16 @@ impl App {
 
     fn handle_remote_enter(&mut self) {
         if let Some(index) = self.selected_remote_file {
-            if let Some(file) = self.remote_files.get(index).cloned() {
-                if file.is_dir {
-                    self.change_remote_directory(&file.name);
+            // 先克隆需要的数据，避免借用冲突
+            let file_name = self.remote_files.get(index).map(|f| f.name.clone());
+            let file_path = self.remote_files.get(index).map(|f| f.path.clone());
+            let is_dir = self.remote_files.get(index).map(|f| f.is_dir);
+            
+            if let (Some(name), Some(path), Some(is_dir)) = (file_name, file_path, is_dir) {
+                if is_dir {
+                    self.change_remote_directory(&name);
                 } else {
-                    self.download_file(&file.path);
+                    self.download_file(&path);
                 }
             }
         }
@@ -452,10 +600,14 @@ impl App {
             let mut manager = ftp_manager.lock().await;
             match manager.go_up().await {
                 Ok(_) => {
+                    // 获取新的当前路径
+                    let new_path = manager.current_path();
                     match manager.list_files().await {
                         Ok(files) => {
                             if let Some(s) = &sender {
                                 let _ = s.send(AppEvent::FtpFilesListed(files));
+                                // 发送路径更新事件
+                                let _ = s.send(AppEvent::FtpPathChanged(new_path));
                             }
                         }
                         Err(e) => {
@@ -485,10 +637,15 @@ impl App {
             let mut manager = ftp_manager.lock().await;
             match manager.change_dir(&dir_name).await {
                 Ok(_) => {
+                    // 更新当前路径
+                    let new_path = manager.current_path();
+                    // 列出新目录中的文件
                     match manager.list_files().await {
                         Ok(files) => {
                             if let Some(s) = &sender {
                                 let _ = s.send(AppEvent::FtpFilesListed(files));
+                                // 发送路径更新事件
+                                let _ = s.send(AppEvent::FtpPathChanged(new_path));
                             }
                         }
                         Err(e) => {
@@ -522,21 +679,113 @@ impl App {
             .to_string();
         let local_path = format!("./downloads/{}", filename);
         
-        self.status_message = format!("Downloading: {}", remote_path);
+        self.status_message = format!("Starting download: {}", filename);
+        self.download_in_progress = true;
 
         tokio::spawn(async move {
-            let mut manager = ftp_manager.lock().await;
-            match manager.download_file(&remote_path, &local_path).await {
-                Ok(_) => {
-                    info!("Downloaded: {} -> {}", remote_path, local_path);
+            // Retry logic - attempt download up to 3 times
+            let mut attempts = 0;
+            let max_attempts = 3;
+            
+            loop {
+                attempts += 1;
+                let mut manager = ftp_manager.lock().await;
+                
+                let result = manager.download_file(&remote_path, &local_path, move |progress| {
                     if let Some(s) = &sender {
-                        let _ = s.send(AppEvent::StatusMessage(format!("✓ Downloaded: {}", filename)));
+                        let _ = s.send(AppEvent::TransferProgress(progress));
+                    }
+                }).await;
+                
+                match result {
+                    Ok(_) => {
+                        info!("Downloaded: {} -> {}", remote_path, local_path);
+                        if let Some(s) = &sender {
+                            let _ = s.send(AppEvent::TransferCompleted(filename.clone()));
+                            // Small delay to show completion message
+                            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                            let _ = s.send(AppEvent::StatusMessage(format!("✓ Downloaded: {}", filename)));
+                        }
+                        break;
+                    }
+                    Err(e) => {
+                        if attempts >= max_attempts {
+                            error!("Download failed after {} attempts: {:?}", max_attempts, e);
+                            if let Some(s) = &sender {
+                                let _ = s.send(AppEvent::FtpError(format!("Download failed: {:?}", e)));
+                            }
+                            break;
+                        } else {
+                            warn!("Download attempt {} failed, retrying... Error: {:?}", attempts, e);
+                            if let Some(s) = &sender {
+                                let _ = s.send(AppEvent::StatusMessage(format!("Download attempt {} failed, retrying...", attempts)));
+                            }
+                            // Wait a bit before retrying
+                            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                        }
                     }
                 }
-                Err(e) => {
-                    error!("Download failed: {:?}", e);
+            }
+        });
+    }
+
+    fn upload_file(&mut self, local_path: &str) {
+        let ftp_manager = Arc::clone(&self.ftp_manager);
+        let sender = self.event_sender.clone();
+        
+        // Extract filename
+        let filename = std::path::Path::new(local_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("upload")
+            .to_string();
+            
+        let remote_path = format!("./{}", filename);
+        
+        self.status_message = format!("Starting upload: {}", filename);
+        self.upload_in_progress = true;
+
+        tokio::spawn(async move {
+            // Retry logic - attempt upload up to 3 times
+            let mut attempts = 0;
+            let max_attempts = 3;
+            
+            loop {
+                attempts += 1;
+                let mut manager = ftp_manager.lock().await;
+                
+                let result = manager.upload_file(&local_path, &remote_path, move |progress| {
                     if let Some(s) = &sender {
-                        let _ = s.send(AppEvent::FtpError(format!("Download failed: {:?}", e)));
+                        let _ = s.send(AppEvent::TransferProgress(progress));
+                    }
+                }).await;
+                
+                match result {
+                    Ok(_) => {
+                        info!("Uploaded: {} -> {}", local_path, remote_path);
+                        if let Some(s) = &sender {
+                            let _ = s.send(AppEvent::TransferCompleted(filename.clone()));
+                            // Small delay to show completion message
+                            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                            let _ = s.send(AppEvent::StatusMessage(format!("✓ Uploaded: {}", filename)));
+                        }
+                        break;
+                    }
+                    Err(e) => {
+                        if attempts >= max_attempts {
+                            error!("Upload failed after {} attempts: {:?}", max_attempts, e);
+                            if let Some(s) = &sender {
+                                let _ = s.send(AppEvent::FtpError(format!("Upload failed: {:?}", e)));
+                            }
+                            break;
+                        } else {
+                            warn!("Upload attempt {} failed, retrying... Error: {:?}", attempts, e);
+                            if let Some(s) = &sender {
+                                let _ = s.send(AppEvent::StatusMessage(format!("Upload attempt {} failed, retrying...", attempts)));
+                            }
+                            // Wait a bit before retrying
+                            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                        }
                     }
                 }
             }
@@ -544,7 +793,9 @@ impl App {
     }
 
     fn upload_file_prompt(&mut self) {
-        self.status_message = "Upload: Create ./test_upload.txt first".to_string();
+        // For now, we'll just show a message about how to upload
+        // In a future implementation, we might add a file picker
+        self.status_message = "To upload a file, select it in the local panel and press Enter";
     }
 
     fn move_remote_selection_up(&mut self) {
@@ -592,6 +843,9 @@ impl App {
                     self.current_local_path_buf = file.path;
                     self.refresh_local_files();
                     self.status_message = format!("Entered: {}", self.current_local_path_buf.display());
+                } else if self.is_connected && !self.remote_focused {
+                    // Upload file when pressing Enter on a local file and remote panel is not focused
+                    self.upload_file(&file.path.to_string_lossy());
                 } else {
                     self.status_message = format!("Selected file: {} (not a dir)", file.name);
                 }
@@ -611,17 +865,50 @@ impl App {
         }
     }
 
+    fn preview_file(&mut self, remote_path: &str) {
+        let ftp_manager = Arc::clone(&self.ftp_manager);
+        let sender = self.event_sender.clone();
+        let remote_path = remote_path.to_string();
+        
+        // Extract filename for display
+        let filename = std::path::Path::new(&remote_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("preview")
+            .to_string();
+        
+        self.status_message = format!("Loading preview for: {}", filename);
+
+        tokio::spawn(async move {
+            let mut manager = ftp_manager.lock().await;
+            
+            match manager.preview_file(&remote_path).await {
+                Ok(content) => {
+                    if let Some(s) = &sender {
+                        let _ = s.send(AppEvent::FilePreview(filename, content));
+                    }
+                }
+                Err(e) => {
+                    if let Some(s) = &sender {
+                        let _ = s.send(AppEvent::FtpError(format!("Failed to preview file: {:?}", e)));
+                    }
+                }
+            }
+        });
+    }
+
     // Public getter methods
     pub fn remote_files(&self) -> &[RemoteFile] {
         &self.remote_files
     }
 
-    pub fn current_remote_path(&self) -> &str {
-        &self.current_remote_path
-    }
 
     pub fn current_local_path(&self) -> String {
         self.current_local_path_buf.to_string_lossy().to_string()
+    }
+
+    pub fn current_remote_path(&self) -> &str {
+        &self.current_remote_path
     }
 
     pub fn is_connected(&self) -> bool {

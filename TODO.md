@@ -7,27 +7,31 @@
 
 ## 🔴 Bug Critici da Risolvere (TUI)
 
-- [ ] **Navigazione locale non funziona**: Enter/Backspace non navigano nelle cartelle
+- [x] **Navigazione locale non funziona**: Enter/Backspace non navigano nelle cartelle
   - Debug già aggiunto, testare cosa appare nella status bar
   - Potrebbe essere problema di focus o selected_local_file
   
-- [ ] **Navigazione remota non funziona**: Il server restituisce file invece di directory
+- [x] **Navigazione remota non funziona**: Il server restituisce file invece di directory
   - Il parsing FTP potrebbe non riconoscere le directory
   - Testare con diversi server FTP per verificare
 
-- [ ] **Verifica selezione file**: Controllare che `selected_local_file` venga aggiornato correttamente
+- [x] **Verifica selezione file**: Controllare che `selected_local_file` venga aggiornato correttamente
 
 ---
 
 ## 🟡 Miglioramenti TUI
 
-- [ ] Aggiungere icone diverse per directory/file
+- [x] Aggiungere icone diverse per directory/file
 - [ ] Mostrare data modifica file
-- [ ] Implementare `h` per help popup
-- [ ] Progress bar per download
-- [ ] Supporto SFTP/FTPS
-- [ ] Salvataggio server preferiti
+- [x] Implementare `h` per help popup
+- [x] Progress bar per download
+- [x] Spinner animato per upload
+- [x] Supporto SFTP/FTPS
+- [x] Salvataggio server preferiti con supporto FTPS/SFTP
 - [ ] Drag & drop con keyboard (selezione multipla)
+- [x] Retry automatico per trasferimenti
+- [x] Supporto cancellazione trasferimenti (Ctrl+C)
+- [x] Anteprima file con tasto 'p'
 
 ---
 
@@ -39,24 +43,15 @@
 - **TailwindCSS + Framer Motion** (UI/Animazioni)
 
 ### Features GUI:
-- [ ] Design macOS/Finder style con glassmorphism
-- [ ] Dark/Light mode toggle
-- [ ] Dual-panel layout
-- [ ] Drag & drop file upload/download
-- [ ] Progress bar animata
+- [x] Design macOS/Finder style con glassmorphism
+- [x] Dark/Light mode toggle
+- [x] Dual-panel layout
+- [x] Drag & drop file upload/download
+- [x] Progress bar animata
 - [ ] Sidebar con server salvati
 - [ ] Notifiche desktop native
 - [ ] Ricerca file
 - [ ] Preview immagini/testo
-
-### Setup Progetto GUI:
-```bash
-# Creare nuovo progetto
-npx create-tauri-app@latest rust-ftp-gui
-cd rust-ftp-gui
-
-# La libreria ftp.rs può essere condivisa o copiata
-```
 
 ---
 
@@ -110,13 +105,23 @@ cd rust-ftp-gui
 5. ✅ Pubblicato su GitHub (axpnet/rust-ftp-tui)
 6. ✅ Aggiunto GitHub Actions per CI/CD
 7. ✅ Implementato browser file locali reale
-8. ⏳ Debug navigazione in corso
+8. ✅ Risolti bug di navigazione locale e remota
+9. ✅ Aggiunte icone per file e directory
+10. ✅ Implementata progress bar per i download
+11. ✅ Implementato spinner animato per gli upload
+12. ✅ Aggiunta guida in-app con tasto 'h'
+13. ✅ Aggiornati i crediti nei file README
+14. ✅ Risolti potenziali panic nella navigazione
+15. ✅ Aggiunto retry automatico per trasferimenti
+16. ✅ Aggiunto supporto cancellazione trasferimenti (Ctrl+C)
+17. ✅ Aggiunto supporto FTPS per connessioni sicure
+18. ✅ Aggiunto supporto SFTP per connessioni SSH
+19. ✅ Aggiunto supporto per anteprima file
 
 ### Prossima sessione:
-1. Risolvere bug navigazione
-2. Testare su server FTP diversi
-3. Decidere se GUI separata o integrata
-4. Iniziare sviluppo GUI se deciso
+1. Testare su server FTP/SFTP diversi
+2. Aggiungere la visualizzazione della data di modifica dei file
+3. Continuare lo sviluppo della GUI
 
 ---
 
