@@ -1,8 +1,9 @@
 # 🌐 Rust FTP TUI Client
 
+[![Build](https://github.com/axpnet/rust-ftp-tui/actions/workflows/build.yml/badge.svg)](https://github.com/axpnet/rust-ftp-tui/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
-[![Platform](https://img.shields.io/badge/platform-Linux-blue.svg)](https://www.linux.org/)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-blue.svg)](https://github.com/axpnet/rust-ftp-tui/releases)
 
 A modern, asynchronous **Terminal User Interface (TUI)** FTP client built in Rust for Linux/Ubuntu.
 
@@ -28,7 +29,7 @@ A modern, asynchronous **Terminal User Interface (TUI)** FTP client built in Rus
 
 ## 🛠️ Installation
 
-### From Source (Recommended)
+### From Source (All Platforms)
 
 ```bash
 # Clone the repository
@@ -39,7 +40,10 @@ cd rust-ftp-tui
 cargo build --release
 
 # Run the application
+# Linux/macOS:
 ./target/release/rust-ftp-tui
+# Windows:
+.\target\release\rust-ftp-tui.exe
 ```
 
 ### From .deb Package (Ubuntu/Debian)
@@ -52,10 +56,14 @@ sudo dpkg -i rust-ftp-tui_0.1.0_amd64.deb
 rust-ftp-tui
 ```
 
+### Windows Executable
+
+Download `rust-ftp-tui-windows-amd64.exe` from the [Releases](https://github.com/axpnet/rust-ftp-tui/releases) page and run it directly. No installation required!
+
 ### Prerequisites
 
-- **Rust** 1.75+ (install via [rustup](https://rustup.rs/))
-- **Linux** (Ubuntu 20.04+ recommended)
+- **Rust** 1.75+ (install via [rustup](https://rustup.rs/)) - only if building from source
+- **Supported Platforms**: Linux, Windows 10+, macOS
 
 ## 🚀 Usage
 
