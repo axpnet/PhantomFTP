@@ -6,7 +6,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect, Alignment},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Gauge, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Gauge, Wrap},
     Frame,
 };
 use crate::app::{App, ConnectionDialog};
@@ -65,11 +65,13 @@ fn draw_main_ui(f: &mut Frame, app: &mut App, size: Rect) {
     if app.show_connection_dialog() {
         let area = f.area();
         let popup_area = Rect {
-            x: area.width.saturating_sub(60) / 2,
-            y: area.height.saturating_sub(10) / 2,
-            width: std::cmp::min(60, area.width),
-            height: std::cmp::min(10, area.height),
+            x: area.width.saturating_sub(70) / 2,
+            y: area.height.saturating_sub(14) / 2,
+            width: std::cmp::min(70, area.width),
+            height: std::cmp::min(14, area.height),
         };
+        // Clear the area behind the popup for opaque background
+        f.render_widget(Clear, popup_area);
         draw_connection_dialog(f, &app.connection_dialog, popup_area);
     }
     
@@ -77,11 +79,13 @@ fn draw_main_ui(f: &mut Frame, app: &mut App, size: Rect) {
     if app.show_help {
         let area = f.area();
         let popup_area = Rect {
-            x: area.width.saturating_sub(70) / 2,
-            y: area.height.saturating_sub(20) / 2,
-            width: std::cmp::min(70, area.width),
-            height: std::cmp::min(20, area.height),
+            x: area.width.saturating_sub(75) / 2,
+            y: area.height.saturating_sub(26) / 2,
+            width: std::cmp::min(75, area.width),
+            height: std::cmp::min(26, area.height),
         };
+        // Clear the area behind the popup for opaque background
+        f.render_widget(Clear, popup_area);
         draw_help_dialog(f, popup_area);
     }
     
@@ -99,7 +103,9 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         draw_main_ui(f, app, size);
         
         // Create a centered popup for help
-        let popup_area = centered_rect(60, 70, size);
+        let popup_area = centered_rect(70, 80, size);
+        // Clear the area behind the popup for opaque background
+        f.render_widget(Clear, popup_area);
         draw_help_dialog(f, popup_area);
         return;
     }
@@ -352,7 +358,7 @@ fn draw_connection_dialog(f: &mut Frame, dialog: &ConnectionDialog, area: Rect) 
             Constraint::Length(1), // Password
             Constraint::Length(1), // Protocol
             Constraint::Length(1), // Empty space
-            Constraint::Length(1), // Buttons
+            Constraint::Min(3),    // Instructions (multi-line)
         ])
         .split(inner_area);
 
@@ -387,8 +393,23 @@ fn draw_connection_dialog(f: &mut Frame, dialog: &ConnectionDialog, area: Rect) 
         f.render_widget(paragraph, chunks[i]);
     }
 
-    // Instructions
-    let instructions = Paragraph::new("Tab: Next field | Enter: Connect | Esc: Cancel | ↑/↓: Select protocol")
+    // Instructions - split on multiple lines for better visibility
+    let instructions_text = vec![
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Tab", Style::default().fg(Color::Yellow)),
+            Span::raw(": Next field  |  "),
+            Span::styled("Enter", Style::default().fg(Color::Yellow)),
+            Span::raw(": Connect"),
+        ]),
+        Line::from(vec![
+            Span::styled("Esc", Style::default().fg(Color::Yellow)),
+            Span::raw(": Cancel    |  "),
+            Span::styled("↑/↓", Style::default().fg(Color::Yellow)),
+            Span::raw(": Select protocol"),
+        ]),
+    ];
+    let instructions = Paragraph::new(instructions_text)
         .style(Style::default().fg(Color::Gray))
         .block(Block::default());
     
