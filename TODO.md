@@ -17,6 +17,11 @@
 
 - [x] **Verifica selezione file**: Controllare che `selected_local_file` venga aggiornato correttamente
 
+- [ ] **Navigazione con mouse non funziona**: Click su cartelle remote non naviga (solo tastiera funziona)
+
+- [ ] **Directory locale predefinita**: La home utente potrebbe non mostrare file (permessi o path)
+  - Permettere configurazione cartella locale predefinita
+
 ---
 
 ## 🟡 Miglioramenti TUI
@@ -32,6 +37,8 @@
 - [x] Retry automatico per trasferimenti
 - [x] Supporto cancellazione trasferimenti (Ctrl+C)
 - [x] Anteprima file con tasto 'p'
+- [ ] **Cartella remota predefinita configurabile**
+- [ ] **Cartella locale predefinita configurabile**
 
 ---
 
