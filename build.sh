@@ -61,12 +61,12 @@ print_status "Detected Rust version: $RUST_VERSION"
 print_status "Creating project directories..."
 mkdir -p downloads
 mkdir -p logs
-mkdir -p ~/.config/rust-ftp-tui
+mkdir -p ~/.config/phantomftp
 
 # Check if config file exists, if not create from example
-if [ ! -f ~/.config/rust-ftp-tui/config.json ]; then
+if [ ! -f ~/.config/phantomftp/config.json ]; then
     print_status "Creating default configuration file..."
-    cat > ~/.config/rust-ftp-tui/config.json << 'EOF'
+    cat > ~/.config/phantomftp/config.json << 'EOF'
 {
   "servers": [],
   "default_local_path": "~/Downloads",
@@ -93,7 +93,7 @@ if [ ! -f ~/.config/rust-ftp-tui/config.json ]; then
   }
 }
 EOF
-    print_success "Configuration file created at: ~/.config/rust-ftp-tui/config.json"
+    print_success "Configuration file created at: ~/.config/phantomftp/config.json"
 else
     print_status "Configuration file already exists"
 fi
@@ -120,17 +120,17 @@ else
 fi
 
 # Check if binary was created
-if [ -f target/release/rust-ftp-tui ]; then
-    print_success "Binary created at: target/release/rust-ftp-tui"
+if [ -f target/release/phantomftp ]; then
+    print_success "Binary created at: target/release/phantomftp"
 else
     print_error "Binary not found!"
     exit 1
 fi
 
 # Create symlink for easy access (optional)
-if [ ! -L ./rust-ftp-tui ]; then
-    ln -sf target/release/rust-ftp-tui ./rust-ftp-tui
-    print_success "Created symlink: ./rust-ftp-tui"
+if [ ! -L ./phantomftp ]; then
+    ln -sf target/release/phantomftp ./phantomftp
+    print_success "Created symlink: ./phantomftp"
 fi
 
 # Build examples
@@ -156,16 +156,16 @@ EOF
 fi
 
 # Set permissions
-chmod +x ./rust-ftp-tui
+chmod +x ./phantomftp
 
 # Calculate binary size
-BINARY_SIZE=$(du -h target/release/rust-ftp-tui | cut -f1)
+BINARY_SIZE=$(du -h target/release/phantomftp | cut -f1)
 print_status "Binary size: $BINARY_SIZE"
 
 # Generate shell completions (optional)
 print_status "Generating shell completions..."
 mkdir -p completions
-if command -v rust-ftp-tui &> /dev/null || [ -f ./rust-ftp-tui ]; then
+if command -v phantomftp &> /dev/null || [ -f ./phantomftp ]; then
     # This would require the binary to be in PATH or clap_complete support
     print_warning "Shell completions generation skipped (requires installed binary)"
 else
@@ -175,17 +175,17 @@ fi
 # Create desktop entry (for Linux desktop environments)
 if [[ "$OS" == "Linux" ]]; then
     print_status "Creating desktop entry..."
-    cat > rust-ftp-tui.desktop << EOF
+    cat > phantomftp.desktop << EOF
 [Desktop Entry]
 Name=Rust FTP TUI
 Comment=Terminal FTP Client
-Exec=$PWD/rust-ftp-tui
+Exec=$PWD/phantomftp
 Icon=utilities-terminal
 Terminal=true
 Type=Application
 Categories=Network;FileTransfer;TerminalEmulator;
 EOF
-    print_success "Desktop entry created: rust-ftp-tui.desktop"
+    print_success "Desktop entry created: phantomftp.desktop"
 fi
 
 echo
@@ -196,20 +196,20 @@ echo "========================================"
 echo -e "${NC}"
 echo
 echo "Usage examples:"
-echo "  ./rust-ftp-tui                           # Interactive mode"
-echo "  ./rust-ftp-tui --help                    # Show help"
-echo "  ./rust-ftp-tui --server host:21 --username user --password pass"
+echo "  ./phantomftp                           # Interactive mode"
+echo "  ./phantomftp --help                    # Show help"
+echo "  ./phantomftp --server host:21 --username user --password pass"
 echo
 echo "Test FTP functionality:"
 echo "  cargo run --example test_ftp            # Run FTP test suite"
 echo
 echo "Configuration:"
-echo "  Edit ~/.config/rust-ftp-tui/config.json to customize settings"
+echo "  Edit ~/.config/phantomftp/config.json to customize settings"
 echo
 echo "Directories:"
 echo "  Downloads: ./downloads/                 # Default download location"
 echo "  Logs: ./logs/                         # Application logs"
-echo "  Config: ~/.config/rust-ftp-tui/       # Configuration files"
+echo "  Config: ~/.config/phantomftp/       # Configuration files"
 echo
 print_success "Happy FTPing! 🚀"
 
@@ -217,7 +217,7 @@ print_success "Happy FTPing! 🚀"
 if [ "$1" == "--test" ]; then
     echo
     print_status "Running connectivity test..."
-    if ./rust-ftp-tui --help &> /dev/null; then
+    if ./phantomftp --help &> /dev/null; then
         print_success "Binary test passed!"
     else
         print_error "Binary test failed!"

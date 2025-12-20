@@ -4,11 +4,10 @@
 
 use crossterm::event::{KeyEvent, KeyCode, KeyModifiers};
 use ratatui::widgets::ListState;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
-use tokio::sync::Mutex as _; // for blocking_lock
-use tracing::{info, error};
+use tracing::{info, error, warn};
 
 use crate::ftp::{FtpManager, RemoteFile, TransferProgress, ProtocolType};
 
@@ -126,8 +125,7 @@ impl ConnectionDialog {
     pub fn cycle_protocol(&mut self) {
         self.protocol = match self.protocol {
             ProtocolType::Ftp => ProtocolType::Ftps,
-            ProtocolType::Ftps => ProtocolType::Sftp,
-            ProtocolType::Sftp => ProtocolType::Ftp,
+            ProtocolType::Ftps => ProtocolType::Ftp,
         };
     }
 }
@@ -195,6 +193,13 @@ impl App {
             preview_content: None,
             preview_file: None,
         }
+    }
+    
+    /// Check if transfer was cancelled (for use in async transfer loops)
+    async fn is_transfer_cancelled(_sender: &Option<mpsc::UnboundedSender<AppEvent>>) -> bool {
+        // This is a placeholder - in a real implementation you'd check a cancellation flag
+        // For now, always return false (transfer not cancelled)
+        false
     }
     
     /// Refresh local file listing
@@ -376,15 +381,9 @@ impl App {
                 self.show_help = !self.show_help;
             }
             KeyCode::Char('p') | KeyCode::Char('P') => {
-                if self.is_connected && self.remote_focused {
-                    if let Some(selected) = self.selected_remote_file {
-                        if let Some(file) = self.remote_files.get(selected) {
-                            if !file.is_dir {
-                                self.preview_file(&file.path);
-                            }
-                        }
-                    }
-                }
+                // Preview functionality temporarily disabled with SFTP removal
+                // Will be re-enabled in v1.1 with full SFTP support
+                self.status_message = "File preview temporarily disabled".to_string();
             }
             KeyCode::Esc => {
                 if self.show_preview {
@@ -475,7 +474,7 @@ impl App {
         tokio::spawn(async move {
             let mut manager = ftp_manager.lock().await;
             
-            // Connect based on protocol type
+            // Connect based on protocol type - only FTP/FTPS supported now
             let result = match protocol {
                 ProtocolType::Ftp => {
                     match manager.connect(&server).await {
@@ -505,12 +504,6 @@ impl App {
                                 Err(e) => Err(e),
                             }
                         }
-                        Err(e) => Err(e),
-                    }
-                }
-                ProtocolType::Sftp => {
-                    match manager.connect_sftp(&server, &username, &password).await {
-                        Ok(_) => Ok(()),
                         Err(e) => Err(e),
                     }
                 }
@@ -554,7 +547,7 @@ impl App {
         tokio::spawn(async move {
             let mut manager = ftp_manager.lock().await;
             // 获取当前路径
-            let current_path = manager.current_path();
+            let current_path = manager.current_path().to_string();
             match manager.list_files().await {
                 Ok(files) => {
                     if let Some(s) = &sender {
@@ -601,7 +594,7 @@ impl App {
             match manager.go_up().await {
                 Ok(_) => {
                     // 获取新的当前路径
-                    let new_path = manager.current_path();
+                    let new_path = manager.current_path().to_string();
                     match manager.list_files().await {
                         Ok(files) => {
                             if let Some(s) = &sender {
@@ -638,7 +631,7 @@ impl App {
             match manager.change_dir(&dir_name).await {
                 Ok(_) => {
                     // 更新当前路径
-                    let new_path = manager.current_path();
+                    let new_path = manager.current_path().to_string();
                     // 列出新目录中的文件
                     match manager.list_files().await {
                         Ok(files) => {
@@ -666,64 +659,69 @@ impl App {
 
     fn download_file(&mut self, remote_path: &str) {
         let ftp_manager = Arc::clone(&self.ftp_manager);
-        let sender = self.event_sender.clone();
+        let sender = self.event_sender.clone(); // Clone sender for use in async block
         let remote_path = remote_path.to_string();
+        let local_path = self.current_local_path_buf.join(
+            std::path::Path::new(&remote_path)
+                .file_name()
+                .unwrap_or(std::ffi::OsStr::new("downloaded_file"))
+        ).to_string_lossy().to_string();
         
-        let _ = std::fs::create_dir_all("./downloads");
-        
-        // Extract filename before moving remote_path
-        let filename = std::path::Path::new(&remote_path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("download")
-            .to_string();
-        let local_path = format!("./downloads/{}", filename);
-        
-        self.status_message = format!("Starting download: {}", filename);
         self.download_in_progress = true;
+        self.transfer_cancelled = false;
+        self.status_message = format!("Downloading: {}", remote_path);
 
         tokio::spawn(async move {
             // Retry logic - attempt download up to 3 times
             let mut attempts = 0;
             let max_attempts = 3;
+            let mut last_error = None;
             
-            loop {
+            while attempts < max_attempts && !Self::is_transfer_cancelled(&sender).await {
                 attempts += 1;
-                let mut manager = ftp_manager.lock().await;
-                
-                let result = manager.download_file(&remote_path, &local_path, move |progress| {
+                if attempts > 1 {
+                    // Notify about retry attempt
                     if let Some(s) = &sender {
+                        let _ = s.send(AppEvent::StatusMessage(
+                            format!("Download attempt {}/{} failed. Retrying in 2 seconds...", 
+                                attempts - 1, max_attempts)
+                        ));
+                    }
+                    
+                    // Wait before retrying
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                }
+                
+                let mut manager = ftp_manager.lock().await;
+                let progress_sender = sender.clone();
+                let result = manager.download_file(&remote_path, &local_path, move |progress| {
+                    if let Some(s) = &progress_sender {
                         let _ = s.send(AppEvent::TransferProgress(progress));
                     }
                 }).await;
                 
                 match result {
                     Ok(_) => {
-                        info!("Downloaded: {} -> {}", remote_path, local_path);
+                        // Download successful
                         if let Some(s) = &sender {
-                            let _ = s.send(AppEvent::TransferCompleted(filename.clone()));
-                            // Small delay to show completion message
-                            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-                            let _ = s.send(AppEvent::StatusMessage(format!("✓ Downloaded: {}", filename)));
+                            let _ = s.send(AppEvent::TransferCompleted(format!("Downloaded: {}", remote_path)));
                         }
-                        break;
+                        return;
                     }
                     Err(e) => {
-                        if attempts >= max_attempts {
-                            error!("Download failed after {} attempts: {:?}", max_attempts, e);
-                            if let Some(s) = &sender {
-                                let _ = s.send(AppEvent::FtpError(format!("Download failed: {:?}", e)));
-                            }
-                            break;
-                        } else {
-                            warn!("Download attempt {} failed, retrying... Error: {:?}", attempts, e);
-                            if let Some(s) = &sender {
-                                let _ = s.send(AppEvent::StatusMessage(format!("Download attempt {} failed, retrying...", attempts)));
-                            }
-                            // Wait a bit before retrying
-                            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-                        }
+                        last_error = Some(e);
                     }
+                }
+            }
+            
+            // All retry attempts exhausted or cancelled
+            if let Some(s) = &sender {
+                if Self::is_transfer_cancelled(&sender).await {
+                    let _ = s.send(AppEvent::FtpError("Transfer cancelled by user".to_string()));
+                } else {
+                    let _ = s.send(AppEvent::FtpError(
+                        format!("Download failed after {} attempts: {:?}", max_attempts, last_error)
+                    ));
                 }
             }
         });
@@ -732,61 +730,69 @@ impl App {
     fn upload_file(&mut self, local_path: &str) {
         let ftp_manager = Arc::clone(&self.ftp_manager);
         let sender = self.event_sender.clone();
-        
-        // Extract filename
-        let filename = std::path::Path::new(local_path)
+        let local_path = local_path.to_string(); // Clone the path to own it
+        let remote_path = std::path::Path::new(&local_path)
             .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("upload")
+            .and_then(|name| name.to_str())
+            .unwrap_or("uploaded_file")
             .to_string();
-            
-        let remote_path = format!("./{}", filename);
         
-        self.status_message = format!("Starting upload: {}", filename);
         self.upload_in_progress = true;
+        self.transfer_cancelled = false;
+        self.status_message = format!("Uploading: {}", remote_path);
 
         tokio::spawn(async move {
             // Retry logic - attempt upload up to 3 times
             let mut attempts = 0;
             let max_attempts = 3;
+            let mut last_error = None;
             
-            loop {
+            while attempts < max_attempts && !Self::is_transfer_cancelled(&sender).await {
                 attempts += 1;
-                let mut manager = ftp_manager.lock().await;
-                
-                let result = manager.upload_file(&local_path, &remote_path, move |progress| {
+                if attempts > 1 {
+                    // Notify about retry attempt
                     if let Some(s) = &sender {
+                        let _ = s.send(AppEvent::StatusMessage(
+                            format!("Upload attempt {}/{} failed. Retrying in 2 seconds...", 
+                                attempts - 1, max_attempts)
+                        ));
+                    }
+                    
+                    // Wait before retrying
+                    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                }
+                
+                let mut manager = ftp_manager.lock().await;
+                let local_path_clone = local_path.clone(); // Clone for use in closure
+                let progress_sender = sender.clone();
+                let result = manager.upload_file(&local_path_clone, &remote_path, move |progress| {
+                    if let Some(s) = &progress_sender {
                         let _ = s.send(AppEvent::TransferProgress(progress));
                     }
                 }).await;
                 
                 match result {
                     Ok(_) => {
-                        info!("Uploaded: {} -> {}", local_path, remote_path);
+                        // Upload successful
                         if let Some(s) = &sender {
-                            let _ = s.send(AppEvent::TransferCompleted(filename.clone()));
-                            // Small delay to show completion message
-                            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-                            let _ = s.send(AppEvent::StatusMessage(format!("✓ Uploaded: {}", filename)));
+                            let _ = s.send(AppEvent::TransferCompleted(format!("Uploaded: {}", remote_path)));
                         }
-                        break;
+                        return;
                     }
                     Err(e) => {
-                        if attempts >= max_attempts {
-                            error!("Upload failed after {} attempts: {:?}", max_attempts, e);
-                            if let Some(s) = &sender {
-                                let _ = s.send(AppEvent::FtpError(format!("Upload failed: {:?}", e)));
-                            }
-                            break;
-                        } else {
-                            warn!("Upload attempt {} failed, retrying... Error: {:?}", attempts, e);
-                            if let Some(s) = &sender {
-                                let _ = s.send(AppEvent::StatusMessage(format!("Upload attempt {} failed, retrying...", attempts)));
-                            }
-                            // Wait a bit before retrying
-                            tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-                        }
+                        last_error = Some(e);
                     }
+                }
+            }
+            
+            // All retry attempts exhausted or cancelled
+            if let Some(s) = &sender {
+                if Self::is_transfer_cancelled(&sender).await {
+                    let _ = s.send(AppEvent::FtpError("Transfer cancelled by user".to_string()));
+                } else {
+                    let _ = s.send(AppEvent::FtpError(
+                        format!("Upload failed after {} attempts: {:?}", max_attempts, last_error)
+                    ));
                 }
             }
         });
@@ -795,7 +801,7 @@ impl App {
     fn upload_file_prompt(&mut self) {
         // For now, we'll just show a message about how to upload
         // In a future implementation, we might add a file picker
-        self.status_message = "To upload a file, select it in the local panel and press Enter";
+        self.status_message = "To upload a file, select it in the local panel and press Enter".to_string();
     }
 
     fn move_remote_selection_up(&mut self) {
@@ -897,6 +903,117 @@ impl App {
         });
     }
 
+    fn enter_local_directory(&mut self) {
+        if let Some(selected) = self.selected_local_file {
+            let path_to_change = if let Some(file) = self.local_files.get(selected) {
+                if file.is_dir {
+                    Some(file.path.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            
+            if let Some(path) = path_to_change {
+                self.change_local_directory(&path);
+            }
+        }
+    }
+
+    fn change_local_directory(&mut self, path: &Path) {
+        if let Ok(new_path) = std::fs::canonicalize(path) {
+            self.current_local_path_buf = new_path.clone();
+            self.refresh_local_files();
+            
+            // Notify about path change
+            if let Some(sender) = &self.event_sender {
+                // Convert path to string for the event
+                let path_str = new_path.to_string_lossy().to_string();
+                let _ = sender.send(AppEvent::FtpPathChanged(path_str));
+            }
+        }
+    }
+
+    fn enter_remote_directory(&mut self) {
+        if let Some(selected) = self.selected_remote_file {
+            if let Some(file) = self.remote_files.get(selected) {
+                if file.is_dir {
+                    let ftp_manager = Arc::clone(&self.ftp_manager);
+                    let sender = self.event_sender.clone();
+                    let dir_path = file.path.clone();
+                    
+                    self.status_message = format!("Entering directory: {}", file.name);
+                    
+                    tokio::spawn(async move {
+                        let mut manager = ftp_manager.lock().await;
+                        
+                        match manager.change_working_dir(&dir_path).await {
+                            Ok(new_path) => {
+                                match manager.list_files().await {
+                                    Ok(files) => {
+                                        if let Some(s) = &sender {
+                                            // Convert path to string for the event
+                                            let path_str = new_path.clone();
+                                            let _ = s.send(AppEvent::FtpPathChanged(path_str));
+                                            let _ = s.send(AppEvent::FtpFilesListed(files));
+                                        }
+                                    }
+                                    Err(e) => {
+                                        if let Some(s) = &sender {
+                                            let _ = s.send(AppEvent::FtpError(format!("Failed to list files: {:?}", e)));
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                if let Some(s) = &sender {
+                                    let _ = s.send(AppEvent::FtpError(format!("Failed to change directory: {:?}", e)));
+                                }
+                            }
+                        }
+                    });
+                }
+            }
+        }
+    }
+
+    fn go_to_parent_remote_directory(&mut self) {
+        let ftp_manager = Arc::clone(&self.ftp_manager);
+        let sender = self.event_sender.clone();
+        
+        self.status_message = "Going to parent directory...".to_string();
+        
+        tokio::spawn(async move {
+            let mut manager = ftp_manager.lock().await;
+            
+            match manager.cd_up().await {
+                Ok(new_path) => {
+                    match manager.list_files().await {
+                        Ok(files) => {
+                            if let Some(s) = &sender {
+                                // Convert path to string for the event
+                                let path_str = new_path.clone();
+                                let _ = s.send(AppEvent::FtpPathChanged(path_str));
+                                let _ = s.send(AppEvent::FtpFilesListed(files));
+                            }
+                        }
+                        Err(e) => {
+                            if let Some(s) = &sender {
+                                let _ = s.send(AppEvent::FtpError(format!("Failed to list files: {:?}", e)));
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    if let Some(s) = &sender {
+                        let _ = s.send(AppEvent::FtpError(format!("Failed to change directory: {:?}", e)));
+                    }
+                }
+            }
+        });
+    }
+
     // Public getter methods
     pub fn remote_files(&self) -> &[RemoteFile] {
         &self.remote_files
@@ -927,10 +1044,6 @@ impl App {
         self.selected_local_file
     }
 
-    pub fn get_current_tab(&self) -> usize {
-        self.current_tab
-    }
-
     pub fn show_connection_dialog(&self) -> bool {
         self.show_connection_dialog
     }
@@ -954,6 +1067,6 @@ impl App {
 
 impl Default for App {
     fn default() -> Self {
-        Self::new(None, None, None)
+        Self::new()
     }
 }

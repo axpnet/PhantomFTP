@@ -25,7 +25,7 @@ print_error() { echo -e "${RED}✗${NC} $1"; }
 
 # Check if running as root for .deb installation
 install_from_deb() {
-    DEB_PATH="target/debian/rust-ftp-tui_0.1.0-1_amd64.deb"
+    DEB_PATH="target/debian/phantomftp_0.1.0-1_amd64.deb"
     
     if [ ! -f "$DEB_PATH" ]; then
         print_warning ".deb package not found. Building..."
@@ -63,8 +63,8 @@ install_from_source() {
     cargo build --release
     
     print_info "Installing to /usr/local/bin..."
-    sudo cp target/release/rust-ftp-tui /usr/local/bin/
-    sudo chmod +x /usr/local/bin/rust-ftp-tui
+    sudo cp target/release/phantomftp /usr/local/bin/
+    sudo chmod +x /usr/local/bin/phantomftp
     
     print_success "Installation complete!"
 }
@@ -90,7 +90,7 @@ case $choice in
         print_info "Building release version..."
         source $HOME/.cargo/env 2>/dev/null || true
         cargo build --release
-        print_success "Build complete! Binary at: target/release/rust-ftp-tui"
+        print_success "Build complete! Binary at: target/release/phantomftp"
         ;;
     4)
         print_info "Cancelled."
@@ -108,6 +108,6 @@ echo "  Installation successful!"
 echo "========================================"
 echo -e "${NC}"
 echo "Usage:"
-echo "  rust-ftp-tui              # Interactive mode"
-echo "  rust-ftp-tui --help       # Show help"
+echo "  phantomftp              # Interactive mode"
+echo "  phantomftp --help       # Show help"
 echo

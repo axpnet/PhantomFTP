@@ -4,9 +4,12 @@
 //! It also manages the application's theme and other settings.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use tracing::{debug, error, info};
+use anyhow::Context;
+use ratatui::style::Color;
 
 // Import the ProtocolType from the ftp module
 use crate::ftp::ProtocolType;
@@ -138,7 +141,7 @@ impl Config {
     }
 
     /// Load configuration from file
-    pub fn load_from_file(path: &str) -> Result<Self> {
+    pub fn load_from_file(path: &str) -> anyhow::Result<Self> {
         let content = fs::read_to_string(path)
             .context("Failed to read config file")?;
         
@@ -150,7 +153,7 @@ impl Config {
     }
 
     /// Save configuration to file
-    pub fn save_to_file(&self, path: &str) -> Result<()> {
+    pub fn save_to_file(&self, path: &str) -> anyhow::Result<()> {
         if let Some(parent) = PathBuf::from(path).parent() {
             fs::create_dir_all(parent)
                 .context("Failed to create config directory")?;
@@ -171,7 +174,7 @@ impl Config {
         if let Ok(home) = std::env::var("HOME") {
             PathBuf::from(home)
                 .join(".config")
-                .join("rust-ftp-tui")
+                .join("phantomftp")
                 .join("config.json")
         } else {
             PathBuf::from("config.json")
@@ -227,7 +230,7 @@ impl ServerConfig {
             host,
             username,
             password: None,
-            port: 21, // Default FTP port
+            port: default_port(),
             protocol: ProtocolType::Ftp,
             use_tls: false,
             tls_hostname: None,
@@ -243,27 +246,11 @@ impl ServerConfig {
             host,
             username,
             password: None,
-            port: 21, // Default FTP port
+            port: default_port(),
             protocol: ProtocolType::Ftps,
             use_tls: true,
             tls_hostname,
             passive_mode: default_passive_mode(),
-            timeout: default_timeout(),
-        }
-    }
-    
-    /// Create a new SFTP server configuration
-    pub fn new_sftp(name: String, host: String, username: String) -> Self {
-        Self {
-            name,
-            host,
-            username,
-            password: None,
-            port: 22, // Default SFTP port
-            protocol: ProtocolType::Sftp,
-            use_tls: false,
-            tls_hostname: None,
-            passive_mode: default_passive_mode(), // Passive mode is not applicable to SFTP
             timeout: default_timeout(),
         }
     }
@@ -284,19 +271,9 @@ impl ServerConfig {
 
     /// Get display name with security indicator
     pub fn display_name(&self) -> String {
-        if self.name.is_empty() {
-            let base = format!("{}@{}", self.username, self.host);
-            if self.use_tls {
-                format!("{} (Secure)", base)
-            } else {
-                base
-            }
-        } else {
-            if self.use_tls {
-                format!("{} (Secure)", self.name)
-            } else {
-                self.name.clone()
-            }
+        match &self.protocol {
+            ProtocolType::Ftp => self.name.clone(),
+            ProtocolType::Ftps => format!("{} (Secure)", self.name),
         }
     }
 }

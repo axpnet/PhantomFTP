@@ -35,9 +35,9 @@ crossterm = "0.28"
 # FTP client - Using tokio async feature with TLS support
 suppaftp = { version = "7", features = ["tokio", "native-tls"] }
 
-# SFTP client
-russh = "0.46"
-russh-sftp = "0.5"
+# SFTP client (disabled temporarily - will be re-added in v1.1)
+# russh = "0.46"
+# russh-sftp = "2.1"
 
 # Error handling
 anyhow = "1.0"
@@ -85,12 +85,12 @@ license-file = ["LICENSE", "0"]
 extended-description = """
 PhantomFTP - A cyberpunk-inspired Terminal User Interface (TUI) FTP client 
 built in Rust. Features include:
-- Multi-protocol support (FTP, FTPS, SFTP)
+- Multi-protocol support (FTP, FTPS)
 - Dual-panel file browser (remote/local)
 - Asynchronous file transfers with progress tracking
-- Directory navigation
-- Configuration file support
-- Customizable themes
+- Real-time progress bars
+- Transfer retry mechanism
+- CyberPunk terminal aesthetics
 """
 section = "net"
 priority = "optional"
@@ -98,4 +98,9 @@ assets = [
     ["target/release/phantomftp", "usr/bin/", "755"],
     ["README.md", "usr/share/doc/phantomftp/", "644"],
     ["LICENSE", "usr/share/doc/phantomftp/", "644"],
+    ["icons/phantomftp-256x256.png", "usr/share/icons/hicolor/256x256/apps/phantomftp.png", "644"],
+    ["icons/phantomftp-128x128.png", "usr/share/icons/hicolor/128x128/apps/phantomftp.png", "644"],
+    ["icons/phantomftp-64x64.png", "usr/share/icons/hicolor/64x64/apps/phantomftp.png", "644"],
+    ["icons/phantomftp-48x48.png", "usr/share/icons/hicolor/48x48/apps/phantomftp.png", "644"],
+    ["icons/PhantomFTP_logo_color.svg", "usr/share/icons/hicolor/scalable/apps/phantomftp.svg", "644"],
 ]

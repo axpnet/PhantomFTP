@@ -44,8 +44,8 @@ When suggesting an enhancement:
 
 ```bash
 # Clone your fork
-git clone https://github.com/YOUR_USERNAME/rust-ftp-tui.git
-cd rust-ftp-tui
+git clone https://github.com/YOUR_USERNAME/PhantomFTP.git
+cd PhantomFTP
 
 # Install Rust (if not already installed)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh

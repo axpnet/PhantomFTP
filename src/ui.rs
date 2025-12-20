@@ -3,16 +3,41 @@
 //! This module handles all the terminal user interface rendering using Ratatui.
 
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Rect, Alignment},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Gauge},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Gauge, Wrap},
     Frame,
 };
-use crate::app::App;
+use crate::app::{App, ConnectionDialog};
+use crate::ftp::ProtocolType;
+
+// Banner constants (inlined to avoid crate resolution issues)
+const PHANTOMFTP_BANNER: &str = r#"
+    ██████╗ ██╗  ██╗ █████╗ ███╗   ██╗████████╗ ██████╗ ███╗   ███╗
+    ██╔══██╗██║  ██║██╔══██╗████╗  ██║╚══██╔══╝██╔═══██╗████╗ ████║
+    ██████╔╝███████║███████║██╔██╗ ██║   ██║   ██║   ██║██╔████╔██║
+    ██╔═══╝ ██╔══██║██╔══██║██║╚██╗██║   ██║   ██║   ██║██║╚██╔╝██║
+    ██║     ██║  ██║██║  ██║██║ ╚████║   ██║   ╚██████╔╝██║ ╚═╝ ██║
+    ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝    ╚═════╝ ╚═╝     ╚═╝
+                    ███████╗████████╗██████╗ 
+                    ██╔════╝╚══██╔══╝██╔══██╗
+                    █████╗     ██║   ██████╔╝
+                    ██╔══╝     ██║   ██╔═══╝ 
+                    ██║        ██║   ██║     
+                    ╚═╝        ╚═╝   ╚═╝     
+"#;
+
+fn get_banner() -> &'static str {
+    PHANTOMFTP_BANNER
+}
+
+fn get_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
 
 /// Draws the main UI (header, FTP panels, status bar, connection dialog)
-fn draw_main_ui(f: &mut Frame, app: &App, size: Rect) {
+fn draw_main_ui(f: &mut Frame, app: &mut App, size: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -30,6 +55,7 @@ fn draw_main_ui(f: &mut Frame, app: &App, size: Rect) {
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(chunks[1]);
         
+    // Pass mutable reference to app for panel drawing
     draw_local_files_panel(f, app, main_chunks[0]);
     draw_remote_files_panel(f, app, main_chunks[1]);
     
@@ -69,7 +95,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let size = f.area();
     
     // If help dialog is active, draw main UI first then overlay help
-    if app.show_help_dialog() {
+    if app.show_help {
         draw_main_ui(f, app, size);
         
         // Create a centered popup for help
@@ -125,11 +151,17 @@ fn draw_remote_files_panel(f: &mut Frame, app: &mut App, area: Rect) {
     let inner_area = block.inner(area);
     f.render_widget(block, area);
 
-    // Show connection status if not connected
+    // Show splash banner if not connected
     if !app.is_connected() {
-        let text = Paragraph::new("Press 'c' to connect to FTP server")
-            .style(Style::default().fg(Color::Gray))
-            .alignment(ratatui::layout::Alignment::Center);
+        let banner_text = format!(
+            "{}\n\n👻 CyberPunk FTP Client v{}\n\nPress 'c' to connect | 'h' for help | 'q' to quit",
+            get_banner(),
+            get_version()
+        );
+        let text = Paragraph::new(banner_text)
+            .style(Style::default().fg(Color::Cyan))
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: false });
         f.render_widget(text, inner_area);
         return;
     }
@@ -251,7 +283,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
             let gauge = Gauge::default()
                 .block(Block::default().borders(Borders::ALL))
                 .gauge_style(Style::default().fg(Color::Blue))
-                .percent(progress.percentage)
+                .percent(progress.percentage as u16)
                 .label(format!("{}%", progress.percentage));
             
             f.render_widget(gauge, chunks[1]);
@@ -324,11 +356,10 @@ fn draw_connection_dialog(f: &mut Frame, dialog: &ConnectionDialog, area: Rect) 
         ])
         .split(inner_area);
 
-    // Protocol display
+    // Protocol display - simplified for FTP/FTPS only
     let protocol_text = match dialog.protocol() {
         ProtocolType::Ftp => "FTP",
         ProtocolType::Ftps => "FTPS (FTP over TLS)",
-        ProtocolType::Sftp => "SFTP (SSH File Transfer Protocol)",
     };
 
     // Field labels and values

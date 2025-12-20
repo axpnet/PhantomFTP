@@ -38,5 +38,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - No progress bars for file transfers yet
 - No FTPS/SFTP support yet
 
-[Unreleased]: https://github.com/axpnet/rust-ftp-tui/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/axpnet/rust-ftp-tui/releases/tag/v0.1.0
+[Unreleased]: https://github.com/axpnet/PhantomFTP/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/axpnet/PhantomFTP/releases/tag/v0.1.0

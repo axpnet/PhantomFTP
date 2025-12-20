@@ -1,8 +1,9 @@
-//! Rust FTP TUI Client Library
+//! PhantomFTP - CyberPunk TUI FTP Client Library
 //! 
 //! This crate provides a modern, asynchronous FTP client with a TUI interface.
 
 pub mod app;
+pub mod banner;
 pub mod config;
 pub mod ftp;
 pub mod ui;

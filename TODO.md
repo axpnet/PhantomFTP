@@ -102,7 +102,7 @@
 2. ✅ Fixato tutte le incompatibilità API (suppaftp, ratatui, tokio)
 3. ✅ Compilato con successo
 4. ✅ Creato pacchetto .deb
-5. ✅ Pubblicato su GitHub (axpnet/rust-ftp-tui)
+5. ✅ Pubblicato su GitHub (axpnet/PhantomFTP)
 6. ✅ Aggiunto GitHub Actions per CI/CD
 7. ✅ Implementato browser file locali reale
 8. ✅ Risolti bug di navigazione locale e remota
@@ -127,7 +127,7 @@
 
 ## 🔗 Link Utili
 
-- **Repo TUI**: https://github.com/axpnet/rust-ftp-tui
+- **Repo TUI**: https://github.com/axpnet/PhantomFTP
 - **Tauri Docs**: https://tauri.app/
 - **Ratatui Docs**: https://ratatui.rs/
 - **SuppaFTP**: https://github.com/veeso/suppaftp

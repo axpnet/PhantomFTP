@@ -54,12 +54,9 @@ async fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Create app
-    let app = App::new(
-        args.server,
-        args.username,
-        args.password,
-    );
+    // Create app (CLI args are ignored for now - they can be used to pre-fill dialog later)
+    let _ = (args.server, args.username, args.password); // Suppress unused warnings
+    let app = App::new();
 
     // Run app
     let res = run_app(&mut terminal, app).await;

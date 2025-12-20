@@ -1,16 +1,32 @@
-# PhantomFTP - Modern Asynchronous TUI FTP Client
+# PhantomFTP - CyberPunk TUI FTP Client
 
 <div align="center">
 
+<img src="icons/PhantomFTP_logo_color.svg" alt="PhantomFTP Logo" width="180">
+
+### 👻 The Ghost in Your Terminal
+
 ![Rust](https://img.shields.io/badge/Rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)
 ![Terminal](https://img.shields.io/badge/Terminal-%23000000.svg?style=for-the-badge&logo=gnu-bash&logoColor=white)
-![License](https://img.shields.io/github/license/axpnet/rust-ftp-tui?style=for-the-badge)
+![License](https://img.shields.io/github/license/axpnet/PhantomFTP?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-1.0.0-00aacc?style=for-the-badge)
+
+```
+    ██████╗ ██╗  ██╗ █████╗ ███╗   ██╗████████╗ ██████╗ ███╗   ███╗
+    ██╔══██╗██║  ██║██╔══██╗████╗  ██║╚══██╔══╝██╔═══██╗████╗ ████║
+    ██████╔╝███████║███████║██╔██╗ ██║   ██║   ██║   ██║██╔████╔██║
+    ██╔═══╝ ██╔══██║██╔══██║██║╚██╗██║   ██║   ██║   ██║██║╚██╔╝██║
+    ██║     ██║  ██║██║  ██║██║ ╚████║   ██║   ╚██████╔╝██║ ╚═╝ ██║
+    ╚═╝     ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝   ╚═╝    ╚═════╝ ╚═╝     ╚═╝
+                    ███████╗████████╗██████╗ 
+                    ██╔════╝╚══██╔══╝██╔══██╗
+                    █████╗     ██║   ██████╔╝
+                    ██╔══╝     ██║   ██╔═══╝ 
+                    ██║        ██║   ██║     
+                    ╚═╝        ╚═╝   ╚═╝     
+```
 
 **PhantomFTP** is a modern, asynchronous Terminal User Interface (TUI) FTP client built in Rust.  
-It supports FTP, FTPS (FTP over TLS), and SFTP (SSH File Transfer Protocol) protocols.
-
-![PhantomFTP Demo](https://raw.githubusercontent.com/axpnet/rust-ftp-tui/main/assets/demo.gif)
-
 *A futuristic, cyberpunk-inspired FTP client that flies like a phantom.*
 
 </div>
@@ -20,14 +36,14 @@ It supports FTP, FTPS (FTP over TLS), and SFTP (SSH File Transfer Protocol) prot
 - **Multi-Protocol Support**:
   - ✅ FTP (Classic File Transfer Protocol)
   - ✅ FTPS (FTP over TLS/SSL for secure connections)
-  - ✅ SFTP (SSH File Transfer Protocol)
+  - 🔜 SFTP (SSH File Transfer Protocol - coming in v1.1)
 - **Dual-Panel Interface**: Local and remote file browsing side-by-side
-- **Asynchronous Operations**: Non-blocking file transfers and directory operations
-- **Real Progress Tracking**: Visual progress bars for downloads, spinner for uploads
-- **Secure Authentication**: Username/password authentication for all protocols
+- **Asynchronous Operations**: Non-blocking file transfers with tokio runtime
+- **Real Progress Tracking**: Visual progress bars for downloads and uploads
+- **Secure Authentication**: Username/password authentication
 - **Intuitive TUI**: Terminal-based interface with keyboard navigation
 - **Connection Management**: Save and reuse server connection settings
-- **Transfer Resilience**: Automatic retry mechanism for failed transfers
+- **Transfer Resilience**: Automatic retry mechanism (up to 3 attempts)
 - **Transfer Cancellation**: Cancel ongoing transfers with Ctrl+C
 - **File Preview**: Preview remote files with the 'p' key
 
@@ -41,19 +57,19 @@ Requirements:
 
 ```bash
 # Clone the repository
-git clone https://github.com/axpnet/rust-ftp-tui.git
-cd rust-ftp-tui
+git clone https://github.com/axpnet/PhantomFTP.git
+cd PhantomFTP
 
 # Build the project
 cargo build --release
 
 # Run the application
-./target/release/rust-ftp-tui
+./target/release/PhantomFTP
 ```
 
 ### Debian Package (Linux)
 
-Download the `.deb` package from [Releases](https://github.com/axpnet/rust-ftp-tui/releases) and install:
+Download the `.deb` package from [Releases](https://github.com/axpnet/PhantomFTP/releases) and install:
 
 ```bash
 sudo dpkg -i phantomftp_*.deb
@@ -106,7 +122,7 @@ The application follows a modular architecture with clear separation of concerns
 
 ## ⚙️ Configuration
 
-Configuration file is stored at `~/.config/rust-ftp-tui/config.json`:
+Configuration file is stored at `~/.config/PhantomFTP/config.json`:
 
 ```json
 {
@@ -171,4 +187,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-For issues, questions, or contributions, please [open an issue](https://github.com/axpnet/rust-ftp-tui/issues) on GitHub.
+For issues, questions, or contributions, please [open an issue](https://github.com/axpnet/PhantomFTP/issues) on GitHub.
