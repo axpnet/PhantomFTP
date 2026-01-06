@@ -124,6 +124,7 @@ fn draw_header(f: &mut Frame, area: Rect) {
     f.render_widget(header, area);
 }
 
+#[allow(dead_code)]
 fn draw_ftp_panel(f: &mut Frame, app: &mut App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -181,7 +182,7 @@ fn draw_remote_files_panel(f: &mut Frame, app: &mut App, area: Rect) {
         };
 
         let prefix = if file.is_dir { "📁" } else { "📄" };
-        let size = file.size.map(|s| format_file_size(s)).unwrap_or_else(|| "-".to_string());
+        let size = file.size.map(format_file_size).unwrap_or_else(|| "-".to_string());
         
         let content = format!("{} {} ({})", prefix, file.name, size);
         
@@ -226,7 +227,7 @@ fn draw_local_files_panel(f: &mut Frame, app: &mut App, area: Rect) {
         };
 
         let prefix = if file.is_dir { "📁" } else { "📄" };
-        let size = file.size.map(|s| format_file_size(s)).unwrap_or_else(|| "".to_string());
+        let size = file.size.map(format_file_size).unwrap_or_default();
         
         let content = if size.is_empty() {
             format!("{} {}", prefix, file.name)

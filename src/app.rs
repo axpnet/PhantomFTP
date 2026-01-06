@@ -2,12 +2,14 @@
 //! 
 //! This module manages the main application state and handles user events.
 
+#![allow(dead_code)] // Some functions are reserved for future use
+
 use crossterm::event::{KeyEvent, KeyCode, KeyModifiers};
 use ratatui::widgets::ListState;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
-use tracing::{info, error, warn};
+use tracing::{info, error};
 
 use crate::ftp::{FtpManager, RemoteFile, TransferProgress, ProtocolType};
 
