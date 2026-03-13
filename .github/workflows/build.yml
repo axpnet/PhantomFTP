@@ -16,8 +16,29 @@ permissions:
   contents: write
 
 jobs:
+  lint:
+    name: Clippy & Tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: clippy
+
+    - name: Rust cache
+      uses: swatinem/rust-cache@v2
+
+    - name: Clippy
+      run: cargo clippy --all-targets -- -D warnings
+
+    - name: Tests
+      run: cargo test --all-targets
+
   build-and-release:
     name: Build ${{ matrix.os }}
+    needs: lint
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -64,16 +85,17 @@ jobs:
         name: 'PhantomFTP ${{ github.ref_name }}'
         body: |
           ## PhantomFTP ${{ github.ref_name }}
-          
-          🚀 **A cyberpunk-inspired Terminal FTP Client**
-          
+
+          A cyberpunk-inspired Terminal FTP Client built in Rust.
+
           ### Features
-          - Multi-protocol support (FTP, FTPS)
+          - FTP and FTPS (Explicit TLS) support
           - Dual-panel file browser (remote/local)
-          - Asynchronous transfers with progress tracking
-          - Retry mechanism for failed transfers
+          - Asynchronous streaming transfers with progress tracking
+          - Transfer cancellation and retry mechanism
+          - AeroFTP server import
           - CyberPunk terminal aesthetics
-          
+
           ### Downloads
           - **Linux**: `phantomftp-linux-amd64` (binary) or `.deb` package
           - **Windows**: `phantomftp-windows-amd64.exe`

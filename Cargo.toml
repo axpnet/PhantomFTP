@@ -1,15 +1,15 @@
 [package]
 name = "phantomftp"
-version = "1.0.2"
+version = "2.0.0"
 edition = "2021"
 authors = ["axpdev"]
-description = "PhantomFTP - A modern, cyberpunk-inspired asynchronous TUI FTP client for Linux"
+description = "PhantomFTP - A modern, cyberpunk-inspired asynchronous TUI FTP/FTPS client"
 license = "MIT"
 repository = "https://github.com/axpnet/PhantomFTP"
 homepage = "https://github.com/axpnet/PhantomFTP"
 documentation = "https://github.com/axpnet/PhantomFTP#readme"
 readme = "README.md"
-keywords = ["ftp", "sftp", "ftps", "tui", "terminal", "async", "client", "cyberpunk"]
+keywords = ["ftp", "ftps", "tui", "terminal", "async", "client", "cyberpunk"]
 categories = ["command-line-utilities", "network-programming"]
 rust-version = "1.75"
 
@@ -32,12 +32,9 @@ tokio = { version = "1", features = ["full"] }
 ratatui = "0.29"
 crossterm = "0.28"
 
-# FTP client - Using tokio async feature with TLS support
-suppaftp = { version = "7", features = ["tokio", "native-tls"] }
-
-# SFTP client (disabled temporarily - will be re-added in v1.1)
-# russh = "0.46"
-# russh-sftp = "2.1"
+# FTP client with async TLS support (pinned: 8.0.2 breaks Windows)
+suppaftp = { version = "=8.0.1", features = ["tokio-async-native-tls"] }
+# native-tls re-exported via suppaftp::async_native_tls
 
 # Error handling
 anyhow = "1.0"
@@ -54,15 +51,7 @@ serde_json = "1.0"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 
-# Utility crates
-unicode-width = "0.1"
-chrono = { version = "0.4", features = ["serde"] }
-
-# Date and time utilities
-time = { version = "0.3", features = ["local-offset", "formatting", "parsing"] }
-
 [dev-dependencies]
-# Additional test dependencies
 tempfile = "3"
 pretty_assertions = "1"
 
@@ -77,19 +66,17 @@ panic = "abort"
 opt-level = 0
 debug = true
 
-# Metadata for cargo-deb
 [package.metadata.deb]
 maintainer = "axpdev <aleimob@gmail.com>"
-copyright = "2025, axpdev"
+copyright = "2025-2026, axpdev"
 license-file = ["LICENSE", "0"]
 extended-description = """
-PhantomFTP - A cyberpunk-inspired Terminal User Interface (TUI) FTP client 
+PhantomFTP - A cyberpunk-inspired Terminal User Interface (TUI) FTP client
 built in Rust. Features include:
-- Multi-protocol support (FTP, FTPS)
+- FTP and FTPS (TLS) support
 - Dual-panel file browser (remote/local)
 - Asynchronous file transfers with progress tracking
-- Real-time progress bars
-- Transfer retry mechanism
+- Transfer retry with cancellation support
 - CyberPunk terminal aesthetics
 """
 section = "net"

@@ -2,11 +2,10 @@
 //! 
 //! This module manages the main application state and handles user events.
 
-#![allow(dead_code)] // Some functions are reserved for future use
-
 use crossterm::event::{KeyEvent, KeyCode, KeyModifiers};
 use ratatui::widgets::ListState;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tracing::{info, error};
@@ -26,6 +25,7 @@ pub struct LocalFile {
 pub enum AppEvent {
     Key(KeyEvent),
     FtpConnected,
+    #[allow(dead_code)]
     FtpDisconnected,
     FtpFilesListed(Vec<RemoteFile>),
     FtpPathChanged(String),
@@ -68,10 +68,6 @@ impl ConnectionDialog {
 
     pub fn password(&self) -> &str {
         &self.password
-    }
-    
-    pub fn use_tls(&self) -> bool {
-        self.use_tls
     }
     
     pub fn protocol(&self) -> &ProtocolType {
@@ -120,10 +116,6 @@ impl ConnectionDialog {
         self.use_tls = !self.use_tls;
     }
     
-    pub fn select_protocol(&mut self, protocol: ProtocolType) {
-        self.protocol = protocol;
-    }
-    
     pub fn cycle_protocol(&mut self) {
         self.protocol = match self.protocol {
             ProtocolType::Ftp => ProtocolType::Ftps,
@@ -148,7 +140,6 @@ pub struct App {
     pub remote_list_state: ListState,
     pub selected_local_file: Option<usize>,
     pub selected_remote_file: Option<usize>,
-    pub local_focused: bool,
     pub remote_focused: bool,
     pub status_message: String,
     pub error_message: Option<String>,
@@ -159,16 +150,17 @@ pub struct App {
     pub ftp_manager: Arc<Mutex<FtpManager>>,
     pub upload_in_progress: bool,
     pub download_in_progress: bool,
-    pub transfer_cancelled: bool,
     pub transfer_progress: Option<TransferProgress>,
     pub show_preview: bool,
     pub preview_content: Option<String>,
     pub preview_file: Option<String>,
+    /// Shared cancellation flag for async transfer tasks
+    cancelled: Arc<AtomicBool>,
 }
 
 impl App {
     pub fn new() -> Self {
-        Self {
+        let mut app = Self {
             is_connected: false,
             current_local_path_buf: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             current_remote_path: "/".to_string(),
@@ -178,7 +170,6 @@ impl App {
             remote_list_state: ListState::default(),
             selected_local_file: None,
             selected_remote_file: None,
-            local_focused: true,
             remote_focused: false,
             status_message: "Welcome! Press 'c' to connect.".to_string(),
             error_message: None,
@@ -189,21 +180,55 @@ impl App {
             ftp_manager: Arc::new(Mutex::new(FtpManager::new())),
             upload_in_progress: false,
             download_in_progress: false,
-            transfer_cancelled: false,
             transfer_progress: None,
             show_preview: false,
             preview_content: None,
             preview_file: None,
+            cancelled: Arc::new(AtomicBool::new(false)),
+        };
+
+        // Populate local file listing at startup
+        app.refresh_local_files();
+        app
+    }
+    
+    /// Pre-fill the connection dialog from CLI arguments and optionally auto-connect.
+    pub fn pre_fill_connection(
+        &mut self,
+        server: Option<String>,
+        username: Option<String>,
+        password: Option<String>,
+    ) {
+        if let Some(s) = server {
+            self.connection_dialog.server = s;
+        }
+        if let Some(u) = username {
+            self.connection_dialog.username = u;
+        }
+        if let Some(p) = password {
+            self.connection_dialog.password = p;
+        }
+
+        // Auto-connect if all fields are filled
+        if self.connection_dialog.is_complete() {
+            self.connect_to_server();
+        } else if !self.connection_dialog.server.is_empty() {
+            // Show dialog pre-filled so user can complete missing fields
+            self.show_connection_dialog = true;
         }
     }
-    
-    /// Check if transfer was cancelled (for use in async transfer loops)
-    async fn is_transfer_cancelled(_sender: &Option<mpsc::UnboundedSender<AppEvent>>) -> bool {
-        // This is a placeholder - in a real implementation you'd check a cancellation flag
-        // For now, always return false (transfer not cancelled)
-        false
+
+    /// Gracefully disconnect from the server before exit.
+    pub async fn shutdown(&mut self) {
+        if self.is_connected {
+            let mut manager = self.ftp_manager.lock().await;
+            if let Err(e) = manager.disconnect().await {
+                error!("Failed to disconnect during shutdown: {:?}", e);
+            }
+            self.is_connected = false;
+        }
     }
-    
+
     /// Refresh local file listing
     pub fn refresh_local_files(&mut self) {
         let mut files = Vec::new();
@@ -315,24 +340,22 @@ impl App {
 
         match key.code {
             KeyCode::Char('c') | KeyCode::Char('C') => {
-                if !key.modifiers.contains(KeyModifiers::CONTROL) && !self.is_connected {
-                    self.show_connection_dialog = true;
-                } else if key.modifiers.contains(KeyModifiers::CONTROL) && (self.upload_in_progress || self.download_in_progress) {
-                    // Ctrl+C to cancel transfer
-                    self.transfer_cancelled = true;
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && (self.upload_in_progress || self.download_in_progress)
+                {
+                    // Ctrl+C during transfer: set the shared cancellation flag
+                    self.cancelled.store(true, Ordering::SeqCst);
                     self.status_message = "Transfer cancelled".to_string();
                     self.upload_in_progress = false;
                     self.download_in_progress = false;
+                    self.transfer_progress = None;
+                } else if !self.is_connected {
+                    self.show_connection_dialog = true;
                 }
             }
             KeyCode::Char('r') | KeyCode::Char('R') => {
                 if self.is_connected {
                     self.refresh_remote_files();
-                }
-            }
-            KeyCode::Char('u') | KeyCode::Char('U') => {
-                if self.is_connected && !self.remote_focused {
-                    self.upload_file_prompt();
                 }
             }
             KeyCode::Tab => {
@@ -383,9 +406,16 @@ impl App {
                 self.show_help = !self.show_help;
             }
             KeyCode::Char('p') | KeyCode::Char('P') => {
-                // Preview functionality temporarily disabled with SFTP removal
-                // Will be re-enabled in v1.1 with full SFTP support
-                self.status_message = "File preview temporarily disabled".to_string();
+                if self.remote_focused && self.is_connected {
+                    if let Some(index) = self.selected_remote_file {
+                        if let Some(file) = self.remote_files.get(index) {
+                            if !file.is_dir {
+                                let path = file.path.clone();
+                                self.preview_file(&path);
+                            }
+                        }
+                    }
+                }
             }
             KeyCode::Esc => {
                 if self.show_preview {
@@ -457,11 +487,6 @@ impl App {
         self.event_sender = Some(sender);
     }
 
-    fn send_event(&self, event: AppEvent) {
-        if let Some(sender) = &self.event_sender {
-            let _ = sender.send(event);
-        }
-    }
 
     fn connect_to_server(&mut self) {
         let ftp_manager = Arc::clone(&self.ftp_manager);
@@ -476,39 +501,18 @@ impl App {
         tokio::spawn(async move {
             let mut manager = ftp_manager.lock().await;
             
-            // Connect based on protocol type - only FTP/FTPS supported now
-            let result = match protocol {
-                ProtocolType::Ftp => {
-                    match manager.connect(&server).await {
-                        Ok(_) => {
-                            // Login after connection
-                            match manager.login(&username, &password).await {
-                                Ok(_) => Ok(()),
-                                Err(e) => Err(e),
-                            }
-                        }
-                        Err(e) => Err(e),
-                    }
-                }
+            // Connect and login based on protocol type
+            let connect_result = match protocol {
+                ProtocolType::Ftp => manager.connect(&server).await,
                 ProtocolType::Ftps => {
-                    // For TLS, we need the hostname for certificate verification
-                    let hostname = if server.contains(':') {
-                        server.split(':').next().unwrap_or(&server).to_string()
-                    } else {
-                        server.clone()
-                    };
-                    
-                    match manager.connect_secure(&server, &hostname).await {
-                        Ok(_) => {
-                            // Login after secure connection
-                            match manager.login(&username, &password).await {
-                                Ok(_) => Ok(()),
-                                Err(e) => Err(e),
-                            }
-                        }
-                        Err(e) => Err(e),
-                    }
+                    let hostname = server.split(':').next().unwrap_or(&server).to_string();
+                    manager.connect_secure(&server, &hostname).await
                 }
+            };
+
+            let result = match connect_result {
+                Ok(_) => manager.login(&username, &password).await,
+                Err(e) => Err(e),
             };
             
             match result {
@@ -548,13 +552,13 @@ impl App {
 
         tokio::spawn(async move {
             let mut manager = ftp_manager.lock().await;
-            // 获取当前路径
+            // Get current path
             let current_path = manager.current_path().to_string();
             match manager.list_files().await {
                 Ok(files) => {
                     if let Some(s) = &sender {
                         let _ = s.send(AppEvent::FtpFilesListed(files));
-                        // 发送路径更新事件
+                        // Send path update event
                         let _ = s.send(AppEvent::FtpPathChanged(current_path));
                     }
                 }
@@ -570,7 +574,7 @@ impl App {
 
     fn handle_remote_enter(&mut self) {
         if let Some(index) = self.selected_remote_file {
-            // 先克隆需要的数据，避免借用冲突
+            // Clone data to avoid borrow conflict
             let file_name = self.remote_files.get(index).map(|f| f.name.clone());
             let file_path = self.remote_files.get(index).map(|f| f.path.clone());
             let is_dir = self.remote_files.get(index).map(|f| f.is_dir);
@@ -595,13 +599,13 @@ impl App {
             let mut manager = ftp_manager.lock().await;
             match manager.go_up().await {
                 Ok(_) => {
-                    // 获取新的当前路径
+                    // Get new current path
                     let new_path = manager.current_path().to_string();
                     match manager.list_files().await {
                         Ok(files) => {
                             if let Some(s) = &sender {
                                 let _ = s.send(AppEvent::FtpFilesListed(files));
-                                // 发送路径更新事件
+                                // Send path update event
                                 let _ = s.send(AppEvent::FtpPathChanged(new_path));
                             }
                         }
@@ -632,14 +636,14 @@ impl App {
             let mut manager = ftp_manager.lock().await;
             match manager.change_dir(&dir_name).await {
                 Ok(_) => {
-                    // 更新当前路径
+                    // Update current path
                     let new_path = manager.current_path().to_string();
-                    // 列出新目录中的文件
+                    // List files in new directory
                     match manager.list_files().await {
                         Ok(files) => {
                             if let Some(s) = &sender {
                                 let _ = s.send(AppEvent::FtpFilesListed(files));
-                                // 发送路径更新事件
+                                // Send path update event
                                 let _ = s.send(AppEvent::FtpPathChanged(new_path));
                             }
                         }
@@ -669,31 +673,35 @@ impl App {
                 .unwrap_or(std::ffi::OsStr::new("downloaded_file"))
         ).to_string_lossy().to_string();
         
+        // Reset and arm the cancellation flag
+        self.cancelled.store(false, Ordering::SeqCst);
+        let cancelled = Arc::clone(&self.cancelled);
+
         self.download_in_progress = true;
-        self.transfer_cancelled = false;
         self.status_message = format!("Downloading: {}", remote_path);
 
         tokio::spawn(async move {
-            // Retry logic - attempt download up to 3 times
             let mut attempts = 0;
             let max_attempts = 3;
             let mut last_error = None;
-            
-            while attempts < max_attempts && !Self::is_transfer_cancelled(&sender).await {
+
+            while attempts < max_attempts && !cancelled.load(Ordering::SeqCst) {
                 attempts += 1;
                 if attempts > 1 {
-                    // Notify about retry attempt
                     if let Some(s) = &sender {
                         let _ = s.send(AppEvent::StatusMessage(
-                            format!("Download attempt {}/{} failed. Retrying in 2 seconds...", 
+                            format!("Download attempt {}/{} failed. Retrying in 2 seconds...",
                                 attempts - 1, max_attempts)
                         ));
                     }
-                    
-                    // Wait before retrying
                     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+                    // Check cancellation after sleep
+                    if cancelled.load(Ordering::SeqCst) {
+                        break;
+                    }
                 }
-                
+
                 let mut manager = ftp_manager.lock().await;
                 let progress_sender = sender.clone();
                 let result = manager.download_file(&remote_path, &local_path, move |progress| {
@@ -701,10 +709,9 @@ impl App {
                         let _ = s.send(AppEvent::TransferProgress(progress));
                     }
                 }).await;
-                
+
                 match result {
                     Ok(_) => {
-                        // Download successful
                         if let Some(s) = &sender {
                             let _ = s.send(AppEvent::TransferCompleted(format!("Downloaded: {}", remote_path)));
                         }
@@ -715,10 +722,10 @@ impl App {
                     }
                 }
             }
-            
+
             // All retry attempts exhausted or cancelled
             if let Some(s) = &sender {
-                if Self::is_transfer_cancelled(&sender).await {
+                if cancelled.load(Ordering::SeqCst) {
                     let _ = s.send(AppEvent::FtpError("Transfer cancelled by user".to_string()));
                 } else {
                     let _ = s.send(AppEvent::FtpError(
@@ -732,50 +739,52 @@ impl App {
     fn upload_file(&mut self, local_path: &str) {
         let ftp_manager = Arc::clone(&self.ftp_manager);
         let sender = self.event_sender.clone();
-        let local_path = local_path.to_string(); // Clone the path to own it
+        let local_path = local_path.to_string();
         let remote_path = std::path::Path::new(&local_path)
             .file_name()
             .and_then(|name| name.to_str())
             .unwrap_or("uploaded_file")
             .to_string();
-        
+
+        // Reset and arm the cancellation flag
+        self.cancelled.store(false, Ordering::SeqCst);
+        let cancelled = Arc::clone(&self.cancelled);
+
         self.upload_in_progress = true;
-        self.transfer_cancelled = false;
         self.status_message = format!("Uploading: {}", remote_path);
 
         tokio::spawn(async move {
-            // Retry logic - attempt upload up to 3 times
             let mut attempts = 0;
             let max_attempts = 3;
             let mut last_error = None;
-            
-            while attempts < max_attempts && !Self::is_transfer_cancelled(&sender).await {
+
+            while attempts < max_attempts && !cancelled.load(Ordering::SeqCst) {
                 attempts += 1;
                 if attempts > 1 {
-                    // Notify about retry attempt
                     if let Some(s) = &sender {
                         let _ = s.send(AppEvent::StatusMessage(
-                            format!("Upload attempt {}/{} failed. Retrying in 2 seconds...", 
+                            format!("Upload attempt {}/{} failed. Retrying in 2 seconds...",
                                 attempts - 1, max_attempts)
                         ));
                     }
-                    
-                    // Wait before retrying
                     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+                    if cancelled.load(Ordering::SeqCst) {
+                        break;
+                    }
                 }
-                
+
                 let mut manager = ftp_manager.lock().await;
-                let local_path_clone = local_path.clone(); // Clone for use in closure
+                let local_path_clone = local_path.clone();
                 let progress_sender = sender.clone();
                 let result = manager.upload_file(&local_path_clone, &remote_path, move |progress| {
                     if let Some(s) = &progress_sender {
                         let _ = s.send(AppEvent::TransferProgress(progress));
                     }
                 }).await;
-                
+
                 match result {
                     Ok(_) => {
-                        // Upload successful
                         if let Some(s) = &sender {
                             let _ = s.send(AppEvent::TransferCompleted(format!("Uploaded: {}", remote_path)));
                         }
@@ -786,10 +795,10 @@ impl App {
                     }
                 }
             }
-            
+
             // All retry attempts exhausted or cancelled
             if let Some(s) = &sender {
-                if Self::is_transfer_cancelled(&sender).await {
+                if cancelled.load(Ordering::SeqCst) {
                     let _ = s.send(AppEvent::FtpError("Transfer cancelled by user".to_string()));
                 } else {
                     let _ = s.send(AppEvent::FtpError(
@@ -798,12 +807,6 @@ impl App {
                 }
             }
         });
-    }
-
-    fn upload_file_prompt(&mut self) {
-        // For now, we'll just show a message about how to upload
-        // In a future implementation, we might add a file picker
-        self.status_message = "To upload a file, select it in the local panel and press Enter".to_string();
     }
 
     fn move_remote_selection_up(&mut self) {
@@ -905,122 +908,7 @@ impl App {
         });
     }
 
-    fn enter_local_directory(&mut self) {
-        if let Some(selected) = self.selected_local_file {
-            let path_to_change = if let Some(file) = self.local_files.get(selected) {
-                if file.is_dir {
-                    Some(file.path.clone())
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-            
-            if let Some(path) = path_to_change {
-                self.change_local_directory(&path);
-            }
-        }
-    }
-
-    fn change_local_directory(&mut self, path: &Path) {
-        if let Ok(new_path) = std::fs::canonicalize(path) {
-            self.current_local_path_buf = new_path.clone();
-            self.refresh_local_files();
-            
-            // Notify about path change
-            if let Some(sender) = &self.event_sender {
-                // Convert path to string for the event
-                let path_str = new_path.to_string_lossy().to_string();
-                let _ = sender.send(AppEvent::FtpPathChanged(path_str));
-            }
-        }
-    }
-
-    fn enter_remote_directory(&mut self) {
-        if let Some(selected) = self.selected_remote_file {
-            if let Some(file) = self.remote_files.get(selected) {
-                if file.is_dir {
-                    let ftp_manager = Arc::clone(&self.ftp_manager);
-                    let sender = self.event_sender.clone();
-                    let dir_path = file.path.clone();
-                    
-                    self.status_message = format!("Entering directory: {}", file.name);
-                    
-                    tokio::spawn(async move {
-                        let mut manager = ftp_manager.lock().await;
-                        
-                        match manager.change_working_dir(&dir_path).await {
-                            Ok(new_path) => {
-                                match manager.list_files().await {
-                                    Ok(files) => {
-                                        if let Some(s) = &sender {
-                                            // Convert path to string for the event
-                                            let path_str = new_path.clone();
-                                            let _ = s.send(AppEvent::FtpPathChanged(path_str));
-                                            let _ = s.send(AppEvent::FtpFilesListed(files));
-                                        }
-                                    }
-                                    Err(e) => {
-                                        if let Some(s) = &sender {
-                                            let _ = s.send(AppEvent::FtpError(format!("Failed to list files: {:?}", e)));
-                                        }
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                if let Some(s) = &sender {
-                                    let _ = s.send(AppEvent::FtpError(format!("Failed to change directory: {:?}", e)));
-                                }
-                            }
-                        }
-                    });
-                }
-            }
-        }
-    }
-
-    fn go_to_parent_remote_directory(&mut self) {
-        let ftp_manager = Arc::clone(&self.ftp_manager);
-        let sender = self.event_sender.clone();
-        
-        self.status_message = "Going to parent directory...".to_string();
-        
-        tokio::spawn(async move {
-            let mut manager = ftp_manager.lock().await;
-            
-            match manager.cd_up().await {
-                Ok(new_path) => {
-                    match manager.list_files().await {
-                        Ok(files) => {
-                            if let Some(s) = &sender {
-                                // Convert path to string for the event
-                                let path_str = new_path.clone();
-                                let _ = s.send(AppEvent::FtpPathChanged(path_str));
-                                let _ = s.send(AppEvent::FtpFilesListed(files));
-                            }
-                        }
-                        Err(e) => {
-                            if let Some(s) = &sender {
-                                let _ = s.send(AppEvent::FtpError(format!("Failed to list files: {:?}", e)));
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    if let Some(s) = &sender {
-                        let _ = s.send(AppEvent::FtpError(format!("Failed to change directory: {:?}", e)));
-                    }
-                }
-            }
-        });
-    }
-
-    // Public getter methods
-    pub fn remote_files(&self) -> &[RemoteFile] {
-        &self.remote_files
-    }
-
+    // Public getters used by ui.rs
 
     pub fn current_local_path(&self) -> String {
         self.current_local_path_buf.to_string_lossy().to_string()
@@ -1038,32 +926,12 @@ impl App {
         self.remote_focused
     }
 
-    pub fn selected_remote_file(&self) -> Option<usize> {
-        self.selected_remote_file
-    }
-
-    pub fn selected_local_file(&self) -> Option<usize> {
-        self.selected_local_file
-    }
-
     pub fn show_connection_dialog(&self) -> bool {
         self.show_connection_dialog
     }
 
-    pub fn connection_dialog(&self) -> &ConnectionDialog {
-        &self.connection_dialog
-    }
-
-    pub fn remote_list_state(&mut self) -> &mut ListState {
-        &mut self.remote_list_state
-    }
-
-    pub fn local_list_state(&mut self) -> &mut ListState {
-        &mut self.local_list_state
-    }
-
     pub fn can_quit(&self) -> bool {
-        !self.show_connection_dialog
+        !self.show_connection_dialog && !self.upload_in_progress && !self.download_in_progress
     }
 }
 

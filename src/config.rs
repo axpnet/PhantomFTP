@@ -3,6 +3,7 @@
 //! This module handles loading and saving server configurations from/to JSON files.
 //! It also manages the application's theme and other settings.
 
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -42,7 +43,8 @@ pub struct ServerConfig {
     /// Username for authentication
     pub username: String,
     
-    /// Password (optional - can be prompted at runtime)
+    /// Password (optional - can be prompted at runtime, never persisted)
+    #[serde(skip)]
     pub password: Option<String>,
     
     /// Port number (default: 21 for FTP/FTPS, 22 for SFTP)
@@ -392,10 +394,11 @@ mod tests {
             "example.com".to_string(),
             "user".to_string()
         );
-        assert_eq!(server.address(), "example.com");
-        
+        // Default port is 21, address() only appends if no colon present
+        assert_eq!(server.address(), "example.com:21");
+
         let server_with_port = ServerConfig {
-            port: Some(2121),
+            port: 2121,
             ..server
         };
         assert_eq!(server_with_port.address(), "example.com:2121");

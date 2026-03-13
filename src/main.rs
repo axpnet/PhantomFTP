@@ -1,6 +1,6 @@
-//! Rust FTP TUI Client - Main Entry Point
-//! 
-//! A modern, asynchronous FTP client with a Terminal User Interface.
+//! PhantomFTP — CyberPunk TUI FTP Client
+//!
+//! A modern, asynchronous FTP/FTPS client with a Terminal User Interface.
 
 use anyhow::Result;
 use clap::Parser;
@@ -12,16 +12,14 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 use tokio::sync::mpsc;
-use tracing::{error, info};
+use tracing::error;
 
-mod app;
-mod config;
-mod ftp;
-mod ui;
+use phantomftp::app::{App, AppEvent};
+use phantomftp::config::Config;
+use phantomftp::import::import_aeroftp_servers;
+use phantomftp::ui;
 
-use app::{App, AppEvent};
-
-/// Simple FTP client with TUI interface
+/// PhantomFTP — CyberPunk TUI FTP/FTPS Client
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -36,16 +34,45 @@ struct Args {
     /// Password for authentication
     #[arg(short, long)]
     password: Option<String>,
+
+    /// Import servers from AeroFTP export JSON file
+    #[arg(long, value_name = "FILE")]
+    import: Option<String>,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize tracing
     tracing_subscriber::fmt::init();
 
-    info!("Starting Rust FTP TUI Client");
-
     let args = Args::parse();
+
+    // Handle --import before entering TUI mode
+    if let Some(ref import_path) = args.import {
+        let path = std::path::Path::new(import_path);
+        let config_path = Config::get_default_config_path();
+        let config_str = config_path.to_string_lossy().to_string();
+
+        let mut config = if config_path.exists() {
+            Config::load_from_file(&config_str).unwrap_or_default()
+        } else {
+            Config::default()
+        };
+
+        match import_aeroftp_servers(path, &mut config) {
+            Ok(0) => {
+                eprintln!("No compatible servers found (only FTP/FTPS are supported).");
+            }
+            Ok(n) => {
+                config.save_to_file(&config_str)?;
+                eprintln!("Imported {} server(s) into {}", n, config_str);
+            }
+            Err(e) => {
+                eprintln!("Import failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+        return Ok(());
+    }
 
     // Setup terminal
     enable_raw_mode()?;
@@ -54,19 +81,19 @@ async fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Create app (CLI args are ignored for now - they can be used to pre-fill dialog later)
-    let _ = (args.server, args.username, args.password); // Suppress unused warnings
-    let app = App::new();
+    // Create app and pre-fill from CLI args
+    let mut app = App::new();
+    app.pre_fill_connection(args.server, args.username, args.password);
 
     // Run app
-    let res = run_app(&mut terminal, app).await;
+    let res = run_app(&mut terminal, &mut app).await;
+
+    // Graceful disconnect before terminal cleanup
+    app.shutdown().await;
 
     // Cleanup terminal
     disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen
-    )?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
     if let Err(err) = res {
@@ -79,17 +106,14 @@ async fn main() -> Result<()> {
 
 async fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    mut app: App,
+    app: &mut App,
 ) -> Result<()> {
-    // Create channel for async communication
     let (event_sender, mut event_receiver) = mpsc::unbounded_channel();
     app.set_event_sender(event_sender);
 
     loop {
-        // Render UI
-        terminal.draw(|f| ui::draw(f, &mut app))?;
+        terminal.draw(|f| ui::draw(f, app))?;
 
-        // Handle input events
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
                 match key.code {
@@ -99,7 +123,10 @@ async fn run_app(
                         }
                     }
                     KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        break;
+                        if !app.upload_in_progress && !app.download_in_progress {
+                            break;
+                        }
+                        app.handle_event(AppEvent::Key(key));
                     }
                     _ => {
                         app.handle_event(AppEvent::Key(key));
@@ -108,12 +135,10 @@ async fn run_app(
             }
         }
 
-        // Handle async events from channel
         while let Ok(event) = event_receiver.try_recv() {
             app.handle_event(event);
         }
 
-        // Process other async events
         app.process_events().await;
     }
 
